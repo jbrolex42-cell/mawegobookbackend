@@ -1,0 +1,299 @@
+{
+  "users": [
+    {
+      "email": "jbrolex42@gmail.com",
+      "password_hash": "$2a$10$si.qNUO.SVJCo/Oewz2YFOqwQzH2qg8lGrbxGvBnhMKbrqgAMsXzG",
+      "full_name": "Shop Owner",
+      "phone": null,
+      "role": "owner",
+      "permissions": [
+        "*"
+      ],
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:11",
+      "updated_at": "2026-11-22 05:45:11",
+      "id": 1
+    }
+  ],
+  "categories": [
+    {
+      "name": "Textbooks",
+      "slug": "textbooks",
+      "description": "Curriculum and academic textbooks (primary & secondary)",
+      "sort_order": 1,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 1
+    },
+    {
+      "name": "Storybooks & Fiction",
+      "slug": "storybooks-fiction",
+      "description": "Novels, short stories and fiction",
+      "sort_order": 2,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 2
+    },
+    {
+      "name": "Stationery",
+      "slug": "stationery",
+      "description": "Pens, books, files and office supplies",
+      "sort_order": 3,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 3
+    },
+    {
+      "name": "Revision & Exam Guides",
+      "slug": "revision-exam-guides",
+      "description": "KCPE, KCSE and other revision materials",
+      "sort_order": 4,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 4
+    },
+    {
+      "name": "Children & Early Learning",
+      "slug": "children-early-learning",
+      "description": "Picture books and early readers",
+      "sort_order": 5,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 5
+    },
+    {
+      "name": "Religious & Spiritual",
+      "slug": "religious-spiritual",
+      "description": "Bibles, hymnals and spiritual books",
+      "sort_order": 6,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 6
+    },
+    {
+      "name": "General Interest",
+      "slug": "general-interest",
+      "description": "Magazines, biographies and general reading",
+      "sort_order": 7,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 7
+    },
+    {
+      "name": "TVET Course Materials",
+      "slug": "tvet-course-materials",
+      "description": "Module notes, workbooks and course packs for TVET colleges",
+      "sort_order": 8,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 8
+    },
+    {
+      "name": "Engineering & Technical",
+      "slug": "engineering-technical",
+      "description": "Mechanical, electrical, civil and automotive engineering texts",
+      "sort_order": 9,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 9
+    },
+    {
+      "name": "ICT & Computing",
+      "slug": "ict-computing",
+      "description": "Computer studies, programming, networking and IT certification guides",
+      "sort_order": 10,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 10
+    },
+    {
+      "name": "Business & Accounting",
+      "slug": "business-accounting",
+      "description": "Business studies, accounting, entrepreneurship and management",
+      "sort_order": 11,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 11
+    },
+    {
+      "name": "Health Sciences",
+      "slug": "health-sciences",
+      "description": "Nursing, clinical medicine, pharmacy and public health materials",
+      "sort_order": 12,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 12
+    },
+    {
+      "name": "Agriculture & Environment",
+      "slug": "agriculture-environment",
+      "description": "Agriculture, agribusiness and environmental studies",
+      "sort_order": 13,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 13
+    },
+    {
+      "name": "Hospitality & Tourism",
+      "slug": "hospitality-tourism",
+      "description": "Food production, hotel management and tourism studies",
+      "sort_order": 14,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 14
+    },
+    {
+      "name": "Education & Teaching",
+      "slug": "education-teaching",
+      "description": "Teacher training, pedagogy and education studies",
+      "sort_order": 15,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 15
+    },
+    {
+      "name": "University Textbooks",
+      "slug": "university-textbooks",
+      "description": "Degree-level core and recommended university textbooks",
+      "sort_order": 16,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 16
+    },
+    {
+      "name": "Law & Social Sciences",
+      "slug": "law-social-sciences",
+      "description": "Law, sociology, psychology and related social science texts",
+      "sort_order": 17,
+      "is_active": 1,
+      "created_at": "2026-11-22 05:45:10",
+      "id": 17
+    }
+  ],
+  "products": [],
+  "stock_ledger": [],
+  "suppliers": [],
+  "purchase_orders": [],
+  "purchase_order_items": [],
+  "orders": [],
+  "order_items": [],
+  "payment_logs": [],
+  "delivery_zones": [
+    {
+      "name": "Mawego & nearby",
+      "fee_kes": 200,
+      "min_order_kes": 0,
+      "is_active": 1,
+      "id": 1
+    },
+    {
+      "name": "Homa Bay town",
+      "fee_kes": 350,
+      "min_order_kes": 0,
+      "is_active": 1,
+      "id": 2
+    }
+  ],
+  "settings": [
+    {
+      "key": "shop_name",
+      "value": "Mawego Bookshop",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 1
+    },
+    {
+      "key": "currency",
+      "value": "KES",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 2
+    },
+    {
+      "key": "default_delivery_fee",
+      "value": "200",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 3
+    },
+    {
+      "key": "free_delivery_threshold",
+      "value": "2000",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 4
+    },
+    {
+      "key": "shop_phone",
+      "value": "+254700000000",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 5
+    },
+    {
+      "key": "shop_address",
+      "value": "Mawego, Kenya",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 6
+    },
+    {
+      "key": "shop_email",
+      "value": "info@mawego.bookshop",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 7
+    },
+    {
+      "key": "receipt_footer",
+      "value": "Thank you for shopping at Mawego Bookshop",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 8
+    },
+    {
+      "key": "tax_rate_percent",
+      "value": "0",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 9
+    },
+    {
+      "key": "facebook_url",
+      "value": "https://facebook.com/",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 10
+    },
+    {
+      "key": "whatsapp_url",
+      "value": "https://wa.me/254700000000",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 11
+    },
+    {
+      "key": "instagram_url",
+      "value": "https://instagram.com/",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 12
+    },
+    {
+      "key": "twitter_url",
+      "value": "https://x.com/",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 13
+    },
+    {
+      "key": "youtube_url",
+      "value": "https://youtube.com/",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 14
+    },
+    {
+      "key": "map_url",
+      "value": "https://maps.google.com/?q=Mawego+Kenya",
+      "updated_at": "2026-11-22 05:45:10",
+      "id": 15
+    }
+  ],
+  "expenses": [],
+  "activity_log": [],
+  "_meta": {
+    "nextId": {
+      "categories": 18,
+      "delivery_zones": 3,
+      "settings": 16,
+      "users": 2
+    }
+  }
+}
