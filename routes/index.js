@@ -43,8 +43,8 @@ const controllers = {
   supplierCtrl,
   expenseCtrl,
   receiptCtrl,
-  pointsCtrl
-  notificationCtrl,
+  pointsCtrl,
+  notificationCtrl
 };
 
 const requiredMethods = {
@@ -54,7 +54,7 @@ const requiredMethods = {
   ],
   productCtrl: [
     'categories', 'listPublic', 'getBySlug',
-    'listAdmin', 'create', 'update',
+    'listAdmin', 'create', 'update', 'remove',
     'adjustStock', 'stockLedger', 'bulkImport'
   ],
   orderCtrl: [
@@ -82,15 +82,15 @@ const requiredMethods = {
   ],
   pointsCtrl: [
     'balance', 'history'
-  ]
+  ],
   notificationCtrl: [
-  'list',
-  'unreadCount',
-  'markRead',
-  'markAllRead',
-  'clearRead',
-  'clearAll'
-]
+    'list',
+    'unreadCount',
+    'markRead',
+    'markAllRead',
+    'clearRead',
+    'clearAll'
+  ]
 };
 
 const missingMethods = [];
@@ -107,18 +107,17 @@ for (const [controllerName, methods] of Object.entries(requiredMethods)) {
 
 if (missingMethods.length > 0) {
   console.error('\n❌ Missing controller functions:');
+
   missingMethods.forEach((method) => {
     console.error(`   - ${method}`);
   });
+
   console.error('\nCheck the controller exports before starting the server.\n');
+
   throw new Error('Controller validation failed');
 }
 
-productCtrl: [
-  'categories', 'listPublic', 'getBySlug',
-  'listAdmin', 'create', 'update', 'remove',
-  'adjustStock', 'stockLedger', 'bulkImport'
-],
+// AUTHENTICATION
 
 router.post('/auth/register', authCtrl.register);
 router.post('/auth/login', authCtrl.login);
@@ -147,12 +146,12 @@ router.patch(
   authCtrl.updateStaff
 );
 
+// LOYALTY POINTS
+
 router.get('/points/balance', authenticate, pointsCtrl.balance);
 router.get('/points/history', authenticate, pointsCtrl.history);
 
-// ==================================================
 // NOTIFICATIONS
-// ==================================================
 
 router.get(
   '/notifications',
@@ -190,9 +189,13 @@ router.delete(
   notificationCtrl.clearAll
 );
 
+// PUBLIC PRODUCTS AND CATEGORIES
+
 router.get('/categories', productCtrl.categories);
 router.get('/products', productCtrl.listPublic);
 router.get('/products/:slug', productCtrl.getBySlug);
+
+// ORDERS
 
 router.post('/orders', optionalAuth, orderCtrl.create);
 
@@ -200,6 +203,8 @@ router.get(
   '/orders/track/:orderNumber',
   orderCtrl.getByNumber
 );
+
+// RECEIPTS
 
 router.get(
   '/receipts/order/:orderId',
@@ -212,6 +217,8 @@ router.get(
   '/receipts/number/:orderNumber',
   receiptCtrl.getByOrderNumber
 );
+
+// PAYMENTS
 
 router.post('/payments/mpesa/stk', paymentCtrl.mpesaStkPush);
 
@@ -234,6 +241,8 @@ router.post(
   '/payments/card/callback',
   paymentCtrl.cardCallback
 );
+
+// ADMIN PRODUCTS
 
 router.get(
   '/admin/products',
@@ -288,6 +297,8 @@ router.post(
   productCtrl.bulkImport
 );
 
+// ADMIN ORDERS
+
 router.get(
   '/admin/orders',
   authenticate,
@@ -316,6 +327,8 @@ router.post(
   paymentCtrl.adminMarkPaid
 );
 
+// REPORTS
+
 router.get(
   '/admin/dashboard',
   authenticate,
@@ -343,6 +356,8 @@ router.get(
   requireManager,
   reportCtrl.profitLoss
 );
+
+// SUPPLIERS AND PURCHASE ORDERS
 
 router.get(
   '/admin/suppliers',
@@ -386,6 +401,8 @@ router.post(
   supplierCtrl.receivePurchaseOrder
 );
 
+// EXPENSES
+
 router.get(
   '/admin/expenses/categories',
   authenticate,
@@ -421,9 +438,7 @@ router.delete(
   expenseCtrl.remove
 );
 
-// ==================================================
 // PUBLIC SETTINGS
-// ==================================================
 
 router.get('/settings', async (req, res) => {
   try {
