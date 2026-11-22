@@ -11,6 +11,7 @@ const {
   MIN_REDEEM_POINTS
 } = require('../utils/helpers');
 
+const { sendOrderReceipt } = require('../services/orderEmailService');
 const FREE_DELIVERY_THRESHOLD = Number(process.env.FREE_DELIVERY_THRESHOLD_KES) || 2000;
 const DEFAULT_DELIVERY_FEE = Number(process.env.DEFAULT_DELIVERY_FEE_KES) || 200;
 
@@ -311,11 +312,20 @@ exports.getAdmin = async (req, res) => {
   }
 };
 
+
 exports.updateStatus = async (req, res) => {
   try {
     const { order_status, payment_status, notes } = req.body;
+
     const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    if (!order) {
+      return res.status(404).json({
+        error: 'Order not found'
+      });
+    }
+
+    const wasPaid = order.payment_status === 'paid';
 
     const allowedOrder = [
       'pending',
@@ -326,53 +336,138 @@ exports.updateStatus = async (req, res) => {
       'completed',
       'cancelled'
     ];
-    const allowedPay = ['pending', 'paid', 'failed', 'refunded'];
+
+    const allowedPay = [
+      'pending',
+      'paid',
+      'failed',
+      'refunded'
+    ];
+
     if (order_status && !allowedOrder.includes(order_status)) {
-      return res.status(400).json({ error: 'Invalid order status' });
-    }
-    if (payment_status && !allowedPay.includes(payment_status)) {
-      return res.status(400).json({ error: 'Invalid payment status' });
+      return res.status(400).json({
+        error: 'Invalid order status'
+      });
     }
 
-    if (payment_status === 'paid' && order.payment_status !== 'paid' && order.payment_method !== 'cash_on_delivery') {
+    if (payment_status && !allowedPay.includes(payment_status)) {
+      return res.status(400).json({
+        error: 'Invalid payment status'
+      });
+    }
+
+    if (
+      payment_status === 'paid' &&
+      order.payment_status !== 'paid' &&
+      order.payment_method !== 'cash_on_delivery'
+    ) {
       await deductStockForOrder(order);
     }
-    if (order_status === 'cancelled' && order.order_status !== 'cancelled') {
-      if (order.payment_status === 'paid' || order.payment_method === 'cash_on_delivery') {
+
+    if (
+      order_status === 'cancelled' &&
+      order.order_status !== 'cancelled'
+    ) {
+      if (
+        order.payment_status === 'paid' ||
+        order.payment_method === 'cash_on_delivery'
+      ) {
         await restoreStockForOrder(order);
       }
     }
 
-    if (order_status) order.order_status = order_status;
-    if (payment_status) order.payment_status = payment_status;
-    if (notes !== undefined) order.notes = notes;
+    if (order_status) {
+      order.order_status = order_status;
+    }
+
+    if (payment_status) {
+      order.payment_status = payment_status;
+    }
+
+    if (notes !== undefined) {
+      order.notes = notes;
+    }
+
     await order.save();
 
-    res.json({ order: serialize(order) });
+    // Automatically email the receipt after payment confirmation.
+    if (!wasPaid && order.payment_status === 'paid') {
+      try {
+        await sendOrderReceipt(order);
+      } catch (emailError) {
+        console.error(
+          'Receipt email failed for order:',
+          order._id,
+          emailError.message
+        );
+      }
+    }
+
+    return res.json({
+      order: serialize(order)
+    });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to update order' });
+
+    return res.status(500).json({
+      error: 'Failed to update order'
+    });
   }
 };
 
+
 exports.markPaid = async (orderId, paymentMeta = {}) => {
   const order = await Order.findById(orderId);
-  if (!order || order.payment_status === 'paid') return order ? serialize(order) : null;
+
+  if (!order || order.payment_status === 'paid') {
+    return order ? serialize(order) : null;
+  }
 
   order.payment_status = 'paid';
-  if (order.order_status === 'pending') order.order_status = 'confirmed';
-  if (paymentMeta.mpesa_receipt) order.mpesa_receipt = paymentMeta.mpesa_receipt;
-  if (paymentMeta.card_reference) order.card_reference = paymentMeta.card_reference;
-  if (paymentMeta.payment_reference) order.payment_reference = paymentMeta.payment_reference;
+
+  if (order.order_status === 'pending') {
+    order.order_status = 'confirmed';
+  }
+
+  if (paymentMeta.mpesa_receipt) {
+    order.mpesa_receipt = paymentMeta.mpesa_receipt;
+  }
+
+  if (paymentMeta.card_reference) {
+    order.card_reference = paymentMeta.card_reference;
+  }
+
+  if (paymentMeta.payment_reference) {
+    order.payment_reference = paymentMeta.payment_reference;
+  }
+
   await order.save();
 
   if (order.payment_method !== 'cash_on_delivery') {
     await deductStockForOrder(order);
   }
-  // Award reward points when payment is confirmed
+
+  // Award reward points when payment is confirmed.
   if (order.user_id && order.points_earned > 0) {
-    await awardPoints(order.user_id, order, order.points_earned);
+    await awardPoints(
+      order.user_id,
+      order,
+      order.points_earned
+    );
   }
+
+  // Send receipt after payment, stock and points processing.
+  try {
+    await sendOrderReceipt(order);
+  } catch (emailError) {
+    console.error(
+      'Receipt email failed for order:',
+      order._id,
+      emailError.message
+    );
+  }
+
   return serialize(order);
 };
 

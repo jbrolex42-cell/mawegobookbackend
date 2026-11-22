@@ -19,7 +19,13 @@ const isProd = process.env.NODE_ENV === 'production';
 
 const frontendPath = path.join(__dirname, '..', 'frontend');
 const uploadsPath = path.join(__dirname, 'uploads');
-const receiptRoutes = require("./routes/receiptRoutes");
+
+const receiptRoutes = require('./routes/receiptRoutes');
+const receiptEmailRoutes = require('./routes/receiptEmailRoutes');
+
+// --------------------------------------------------
+// ENVIRONMENT VALIDATION
+// --------------------------------------------------
 
 function validateEnv() {
   if (!process.env.MONGODB_URI) {
@@ -42,23 +48,32 @@ function validateEnv() {
 
   if (
     isProd &&
-    (!process.env.ADMIN_PASSWORD ||
-      process.env.ADMIN_PASSWORD === 'MawegoAdmin2024!')
+    (
+      !process.env.ADMIN_PASSWORD ||
+      process.env.ADMIN_PASSWORD === 'MawegoAdmin2024!'
+    )
   ) {
     console.warn('WARNING: Change the default admin password.');
   }
 }
 
+// --------------------------------------------------
+// EXPRESS CONFIGURATION
+// --------------------------------------------------
+
 app.set('trust proxy', 1);
 
+// Security headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
   res.setHeader(
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=()'
   );
+
   res.setHeader('X-XSS-Protection', '0');
 
   if (isProd) {
@@ -71,6 +86,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// CORS
 const corsOrigin = process.env.CORS_ORIGIN;
 
 const allowedOrigins = corsOrigin
@@ -82,12 +98,15 @@ app.use(cors({
   credentials: true
 }));
 
+// Request body limits
 app.use(express.json({ limit: '10mb' }));
+
 app.use(express.urlencoded({
   extended: true,
   limit: '10mb'
 }));
 
+// General API rate limiting
 app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProd ? 300 : 600,
@@ -98,6 +117,7 @@ app.use('/api/', rateLimit({
   }
 }));
 
+// Authentication rate limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProd ? 30 : 100,
@@ -111,6 +131,10 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
+// --------------------------------------------------
+// HEALTH CHECK
+// --------------------------------------------------
+
 app.get('/api/health', (req, res) => {
   const dbConnected = mongoose.connection.readyState === 1;
 
@@ -123,14 +147,27 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// --------------------------------------------------
+// STATIC UPLOADS
+// --------------------------------------------------
+
 app.use('/uploads', express.static(uploadsPath, {
   maxAge: isProd ? '7d' : 0,
   etag: true
 }));
 
-app.use("/api/receipts", receiptRoutes);
+// --------------------------------------------------
+// API ROUTES
+// --------------------------------------------------
+
+app.use('/api/receipts', receiptRoutes);
+app.use('/api/receipt-emails', receiptEmailRoutes);
 
 app.use('/api', require('./routes'));
+
+// --------------------------------------------------
+// WEBSITE SETTINGS
+// --------------------------------------------------
 
 app.get('/api/settings', async (req, res, next) => {
   try {
@@ -148,18 +185,24 @@ app.get('/api/settings', async (req, res, next) => {
   }
 });
 
+// --------------------------------------------------
+// FRONTEND FILES
+// --------------------------------------------------
+
 app.use(express.static(frontendPath, {
   maxAge: isProd ? '1d' : 0,
   etag: true,
   index: false
 }));
 
+// API 404 handler
 app.use('/api', (req, res) => {
   res.status(404).json({
     error: 'API endpoint not found'
   });
 });
 
+// Frontend fallback
 app.get('*', (req, res) => {
   if (req.path.startsWith('/uploads')) {
     return res.status(404).send('Not found');
@@ -184,6 +227,10 @@ app.get('*', (req, res) => {
   });
 });
 
+// --------------------------------------------------
+// GLOBAL ERROR HANDLER
+// --------------------------------------------------
+
 app.use((error, req, res, next) => {
   console.error('Server error:', error);
 
@@ -207,6 +254,9 @@ app.use((error, req, res, next) => {
   });
 });
 
+// --------------------------------------------------
+// DATABASE INITIALIZATION
+// --------------------------------------------------
 
 async function initializeDatabase() {
   console.log('Initializing Mawego Bookshop database...');
@@ -214,12 +264,15 @@ async function initializeDatabase() {
   const { init } = require('./utils/initDb');
 
   if (typeof init === 'function') {
-    // Supports both synchronous and asynchronous init functions.
     await Promise.resolve(init());
   }
 
   console.log('Database initialization completed.');
 }
+
+// --------------------------------------------------
+// SERVER SHUTDOWN
+// --------------------------------------------------
 
 let server;
 let shuttingDown = false;
@@ -262,6 +315,10 @@ async function shutdown(signal) {
   }
 }
 
+// --------------------------------------------------
+// START SERVER
+// --------------------------------------------------
+
 async function start() {
   try {
     console.log('Starting Mawego Bookshop...');
@@ -279,7 +336,8 @@ async function start() {
       console.log('======================================');
       console.log('       MAWEGO BOOKSHOP ONLINE');
       console.log('======================================');
-      console.log('Server is ready.');
+      console.log(`Server running on port ${PORT}`);
+      console.log('======================================');
       console.log('');
     });
 

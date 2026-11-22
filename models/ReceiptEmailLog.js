@@ -1,0 +1,56 @@
+
+const mongoose = require("mongoose");
+
+const ReceiptEmailLogSchema = new mongoose.Schema({
+  order_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    index: true
+  },
+
+  customer_email: {
+    type: String,
+    required: true
+  },
+
+  status: {
+    type: String,
+    enum: ["pending", "sent", "failed"],
+    default: "pending"
+  },
+
+  brevo_message_id: String,
+  error_message: String,
+
+  attempts: {
+    type: Number,
+    default: 0
+  },
+
+  sent_at: Date
+}, {
+  timestamps: true
+});
+
+// General order/status lookup index.
+ReceiptEmailLogSchema.index(
+  { order_id: 1, status: 1 },
+  { name: "receipt_email_order_status" }
+);
+
+// Allow only ONE pending receipt email per order.
+ReceiptEmailLogSchema.index(
+  { order_id: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: "pending"
+    },
+    name: "one_pending_receipt_email_per_order"
+  }
+);
+
+module.exports = mongoose.model(
+  "ReceiptEmailLog",
+  ReceiptEmailLogSchema
+);
