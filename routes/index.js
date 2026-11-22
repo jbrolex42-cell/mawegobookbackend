@@ -1,5 +1,6 @@
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 
@@ -28,11 +29,33 @@ const {
 
 const router = express.Router();
 
+// ======================================================
+// UPLOAD DIRECTORY
+// ======================================================
+
 const uploadDir = path.join(__dirname, '..', 'uploads');
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+// ======================================================
+// PASSWORD RESET RATE LIMITER
+// ======================================================
+
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many password reset attempts. Please try again later.'
+  }
+});
+
+// ======================================================
+// CONTROLLER REGISTRATION
+// ======================================================
 
 const controllers = {
   authCtrl,
@@ -47,42 +70,86 @@ const controllers = {
   notificationCtrl
 };
 
+// ======================================================
+// REQUIRED CONTROLLER METHODS
+// ======================================================
+
 const requiredMethods = {
   authCtrl: [
-    'register', 'login', 'me', 'myOrders',
-    'createStaff', 'listStaff', 'updateStaff'
+    'register',
+    'login',
+    'forgotPassword',
+    'resetPassword',
+    'me',
+    'myOrders',
+    'createStaff',
+    'listStaff',
+    'updateStaff'
   ],
+
   productCtrl: [
-    'categories', 'listPublic', 'getBySlug',
-    'listAdmin', 'create', 'update', 'remove',
-    'adjustStock', 'stockLedger', 'bulkImport'
+    'categories',
+    'listPublic',
+    'getBySlug',
+    'listAdmin',
+    'create',
+    'update',
+    'remove',
+    'adjustStock',
+    'stockLedger',
+    'bulkImport'
   ],
+
   orderCtrl: [
-    'create', 'getByNumber', 'listAdmin',
-    'getAdmin', 'updateStatus'
+    'create',
+    'getByNumber',
+    'listAdmin',
+    'getAdmin',
+    'updateStatus'
   ],
+
   paymentCtrl: [
-    'mpesaStkPush', 'mpesaCallback',
-    'cardInitiate', 'cardCallback', 'adminMarkPaid'
+    'mpesaStkPush',
+    'mpesaCallback',
+    'cardInitiate',
+    'cardCallback',
+    'adminMarkPaid'
   ],
+
   reportCtrl: [
-    'dashboard', 'salesReport',
-    'inventoryReport', 'profitLoss'
+    'dashboard',
+    'salesReport',
+    'inventoryReport',
+    'profitLoss'
   ],
+
   supplierCtrl: [
-    'listSuppliers', 'createSupplier',
-    'updateSupplier', 'listPurchaseOrders',
-    'createPurchaseOrder', 'receivePurchaseOrder'
+    'listSuppliers',
+    'createSupplier',
+    'updateSupplier',
+    'listPurchaseOrders',
+    'createPurchaseOrder',
+    'receivePurchaseOrder'
   ],
+
   expenseCtrl: [
-    'categories', 'list', 'create', 'update', 'remove'
+    'categories',
+    'list',
+    'create',
+    'update',
+    'remove'
   ],
+
   receiptCtrl: [
-    'getByOrderId', 'getByOrderNumber'
+    'getByOrderId',
+    'getByOrderNumber'
   ],
+
   pointsCtrl: [
-    'balance', 'history'
+    'balance',
+    'history'
   ],
+
   notificationCtrl: [
     'list',
     'unreadCount',
@@ -92,6 +159,10 @@ const requiredMethods = {
     'clearAll'
   ]
 };
+
+// ======================================================
+// CONTROLLER VALIDATION
+// ======================================================
 
 const missingMethods = [];
 
@@ -117,13 +188,47 @@ if (missingMethods.length > 0) {
   throw new Error('Controller validation failed');
 }
 
+// ======================================================
 // AUTHENTICATION
+// ======================================================
 
+// Customer registration
 router.post('/auth/register', authCtrl.register);
+
+// Customer login
 router.post('/auth/login', authCtrl.login);
 
-router.get('/auth/me', authenticate, authCtrl.me);
-router.get('/auth/my-orders', authenticate, authCtrl.myOrders);
+// Forgot password
+router.post(
+  '/auth/forgot-password',
+  passwordResetLimiter,
+  authCtrl.forgotPassword
+);
+
+// Reset password
+router.post(
+  '/auth/reset-password',
+  passwordResetLimiter,
+  authCtrl.resetPassword
+);
+
+// Logged-in customer information
+router.get(
+  '/auth/me',
+  authenticate,
+  authCtrl.me
+);
+
+// Logged-in customer orders
+router.get(
+  '/auth/my-orders',
+  authenticate,
+  authCtrl.myOrders
+);
+
+// ======================================================
+// STAFF MANAGEMENT
+// ======================================================
 
 router.post(
   '/auth/staff',
@@ -146,12 +251,25 @@ router.patch(
   authCtrl.updateStaff
 );
 
+// ======================================================
 // LOYALTY POINTS
+// ======================================================
 
-router.get('/points/balance', authenticate, pointsCtrl.balance);
-router.get('/points/history', authenticate, pointsCtrl.history);
+router.get(
+  '/points/balance',
+  authenticate,
+  pointsCtrl.balance
+);
 
+router.get(
+  '/points/history',
+  authenticate,
+  pointsCtrl.history
+);
+
+// ======================================================
 // NOTIFICATIONS
+// ======================================================
 
 router.get(
   '/notifications',
@@ -189,23 +307,45 @@ router.delete(
   notificationCtrl.clearAll
 );
 
+// ======================================================
 // PUBLIC PRODUCTS AND CATEGORIES
+// ======================================================
 
-router.get('/categories', productCtrl.categories);
-router.get('/products', productCtrl.listPublic);
-router.get('/products/:slug', productCtrl.getBySlug);
+router.get(
+  '/categories',
+  productCtrl.categories
+);
 
+router.get(
+  '/products',
+  productCtrl.listPublic
+);
+
+router.get(
+  '/products/:slug',
+  productCtrl.getBySlug
+);
+
+// ======================================================
 // ORDERS
+// ======================================================
 
-router.post('/orders', optionalAuth, orderCtrl.create);
+router.post(
+  '/orders',
+  optionalAuth,
+  orderCtrl.create
+);
 
 router.get(
   '/orders/track/:orderNumber',
   orderCtrl.getByNumber
 );
 
+// ======================================================
 // RECEIPTS
+// ======================================================
 
+// Staff receipt lookup by order ID
 router.get(
   '/receipts/order/:orderId',
   authenticate,
@@ -213,14 +353,20 @@ router.get(
   receiptCtrl.getByOrderId
 );
 
+// Customer receipt lookup by order number
 router.get(
   '/receipts/number/:orderNumber',
   receiptCtrl.getByOrderNumber
 );
 
+// ======================================================
 // PAYMENTS
+// ======================================================
 
-router.post('/payments/mpesa/stk', paymentCtrl.mpesaStkPush);
+router.post(
+  '/payments/mpesa/stk',
+  paymentCtrl.mpesaStkPush
+);
 
 router.post(
   '/payments/mpesa/callback',
@@ -242,7 +388,9 @@ router.post(
   paymentCtrl.cardCallback
 );
 
+// ======================================================
 // ADMIN PRODUCTS
+// ======================================================
 
 router.get(
   '/admin/products',
@@ -297,7 +445,9 @@ router.post(
   productCtrl.bulkImport
 );
 
+// ======================================================
 // ADMIN ORDERS
+// ======================================================
 
 router.get(
   '/admin/orders',
@@ -327,7 +477,9 @@ router.post(
   paymentCtrl.adminMarkPaid
 );
 
+// ======================================================
 // REPORTS
+// ======================================================
 
 router.get(
   '/admin/dashboard',
@@ -357,7 +509,9 @@ router.get(
   reportCtrl.profitLoss
 );
 
+// ======================================================
 // SUPPLIERS AND PURCHASE ORDERS
+// ======================================================
 
 router.get(
   '/admin/suppliers',
@@ -401,7 +555,9 @@ router.post(
   supplierCtrl.receivePurchaseOrder
 );
 
+// ======================================================
 // EXPENSES
+// ======================================================
 
 router.get(
   '/admin/expenses/categories',
@@ -438,7 +594,9 @@ router.delete(
   expenseCtrl.remove
 );
 
+// ======================================================
 // PUBLIC SETTINGS
+// ======================================================
 
 router.get('/settings', async (req, res) => {
   try {
@@ -452,6 +610,7 @@ router.get('/settings', async (req, res) => {
     });
 
     res.json({ settings });
+
   } catch (error) {
     console.error('Settings error:', error.message);
 
@@ -460,5 +619,9 @@ router.get('/settings', async (req, res) => {
     });
   }
 });
+
+// ======================================================
+// EXPORT ROUTER
+// ======================================================
 
 module.exports = router;
