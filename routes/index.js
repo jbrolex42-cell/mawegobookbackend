@@ -392,7 +392,7 @@ router.post(
 );
 
 // Safaricom payment callback.
-// This must remain public because Safaricom calls it.
+// This must remain public becauom calls it.
 router.post(
   '/payments/mpesa/callback',
   mpesaCtrl.callback
