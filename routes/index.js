@@ -15,6 +15,7 @@ const authCtrl = require('../controllers/authController');
 const productCtrl = require('../controllers/productController');
 const orderCtrl = require('../controllers/orderController');
 const paymentCtrl = require('../controllers/paymentController');
+const mpesaCtrl = require('../controllers/mpesaController');
 const reportCtrl = require('../controllers/reportController');
 const supplierCtrl = require('../controllers/supplierController');
 const expenseCtrl = require('../controllers/expenseController');
@@ -62,6 +63,7 @@ const controllers = {
   productCtrl,
   orderCtrl,
   paymentCtrl,
+  mpesaCtrl,
   reportCtrl,
   supplierCtrl,
   expenseCtrl,
@@ -105,15 +107,19 @@ const requiredMethods = {
     'getByNumber',
     'listAdmin',
     'getAdmin',
-    'updateStatus'
+    'updateStatus',
+    'markPaid'
   ],
 
   paymentCtrl: [
-    'mpesaStkPush',
-    'mpesaCallback',
     'cardInitiate',
     'cardCallback',
     'adminMarkPaid'
+  ],
+
+  mpesaCtrl: [
+    'initiateStk',
+    'callback'
   ],
 
   reportCtrl: [
@@ -363,16 +369,26 @@ router.get(
 // PAYMENTS
 // ======================================================
 
+// ======================================================
+// PAYMENTS
+// ======================================================
+
+// M-Pesa STK Push
+// optionalAuth allows both guest and logged-in customers.
 router.post(
   '/payments/mpesa/stk',
-  paymentCtrl.mpesaStkPush
+  optionalAuth,
+  mpesaCtrl.initiateStk
 );
 
+// Safaricom payment callback.
+// This must remain public because Safaricom calls it.
 router.post(
   '/payments/mpesa/callback',
-  paymentCtrl.mpesaCallback
+  mpesaCtrl.callback
 );
 
+// Card payments
 router.post(
   '/payments/card/initiate',
   paymentCtrl.cardInitiate

@@ -8,6 +8,7 @@ const cors = require('cors');
 const path = require('path');
 const mongoose = require('mongoose');
 const rateLimit = require('express-rate-limit');
+const fs = require('fs');
 
 const { connectMongo } = require('./config/mongo');
 const { Setting } = require('./models');
@@ -20,20 +21,17 @@ const isProd = process.env.NODE_ENV === 'production';
 const frontendPath = path.join(__dirname, '..', 'frontend');
 const uploadsPath = path.join(__dirname, 'uploads');
 
-const receiptRoutes = require('./routes/receiptRoutes');
-const receiptEmailRoutes = require('./routes/receiptEmailRoutes');
-
-// --------------------------------------------------
+// ======================================================
 // ENVIRONMENT VALIDATION
-// --------------------------------------------------
+// ======================================================
 
 function validateEnv() {
   if (!process.env.MONGODB_URI) {
-    throw new Error('MONGODB_URI is required in your .env file');
+    throw new Error('MONGODB_URI is required.');
   }
 
   if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET is required in your .env file');
+    throw new Error('JWT_SECRET is required.');
   }
 
   if (
@@ -43,7 +41,9 @@ function validateEnv() {
       process.env.JWT_SECRET.includes('change-this')
     )
   ) {
-    throw new Error('Production JWT_SECRET must be a strong secret');
+    throw new Error(
+      'Production JWT_SECRET must be at least 32 characters and must not be a placeholder.'
+    );
   }
 
   if (
@@ -53,21 +53,39 @@ function validateEnv() {
       process.env.ADMIN_PASSWORD === 'MawegoAdmin2024!'
     )
   ) {
-    console.warn('WARNING: Change the default admin password.');
+    console.warn(
+      'WARNING: Change the default admin password.'
+    );
+  }
+
+  if (
+    process.env.CORS_ORIGIN &&
+    typeof process.env.CORS_ORIGIN !== 'string'
+  ) {
+    throw new Error('CORS_ORIGIN must be a comma-separated string.');
   }
 }
 
-// --------------------------------------------------
+// ======================================================
 // EXPRESS CONFIGURATION
-// --------------------------------------------------
+// ======================================================
+
+app.disable('x-powered-by');
 
 app.set('trust proxy', 1);
 
-// Security headers
+// ======================================================
+// SECURITY HEADERS
+// ======================================================
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  res.setHeader(
+    'Referrer-Policy',
+    'strict-origin-when-cross-origin'
+  );
 
   res.setHeader(
     'Permissions-Policy',
@@ -86,11 +104,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// ======================================================
 // CORS
+// ======================================================
+
 const corsOrigin = process.env.CORS_ORIGIN;
 
 const allowedOrigins = corsOrigin
-  ? corsOrigin.split(',').map(origin => origin.trim()).filter(Boolean)
+  ? corsOrigin
+      .split(',')
+      .map(origin => origin.trim())
+      .filter(Boolean)
   : true;
 
 app.use(cors({
@@ -98,15 +122,23 @@ app.use(cors({
   credentials: true
 }));
 
-// Request body limits
-app.use(express.json({ limit: '10mb' }));
+// ======================================================
+// REQUEST BODY PARSING
+// ======================================================
+
+app.use(express.json({
+  limit: '10mb'
+}));
 
 app.use(express.urlencoded({
   extended: true,
   limit: '10mb'
 }));
 
-// General API rate limiting
+// ======================================================
+// API RATE LIMITING
+// ======================================================
+
 app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProd ? 300 : 600,
@@ -117,26 +149,49 @@ app.use('/api/', rateLimit({
   }
 }));
 
-// Authentication rate limiting
+// ======================================================
+// AUTHENTICATION RATE LIMITING
+// ======================================================
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProd ? 30 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    error: 'Too many login attempts. Try again in 15 minutes.'
+    error: 'Too many authentication attempts. Please try again later.'
   }
 });
 
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// --------------------------------------------------
+// ======================================================
+// UPLOAD DIRECTORY
+// ======================================================
+
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, {
+    recursive: true
+  });
+}
+
+// ======================================================
+// STATIC UPLOADS
+// ======================================================
+
+app.use('/uploads', express.static(uploadsPath, {
+  maxAge: isProd ? '7d' : 0,
+  etag: true
+}));
+
+// ======================================================
 // HEALTH CHECK
-// --------------------------------------------------
+// ======================================================
 
 app.get('/api/health', (req, res) => {
-  const dbConnected = mongoose.connection.readyState === 1;
+  const dbConnected =
+    mongoose.connection.readyState === 1;
 
   res.status(dbConnected ? 200 : 503).json({
     status: dbConnected ? 'ok' : 'degraded',
@@ -147,27 +202,34 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// --------------------------------------------------
-// STATIC UPLOADS
-// --------------------------------------------------
-
-app.use('/uploads', express.static(uploadsPath, {
-  maxAge: isProd ? '7d' : 0,
-  etag: true
-}));
-
-// --------------------------------------------------
+// ======================================================
 // API ROUTES
-// --------------------------------------------------
+// ======================================================
 
-app.use('/api/receipts', receiptRoutes);
-app.use('/api/receipt-emails', receiptEmailRoutes);
+// Central router handles:
+// - Authentication
+// - Products and categories
+// - Orders
+// - M-Pesa STK Push and callback
+// - Card payments
+// - Manual payment confirmation
+// - Receipts
+// - Notifications
+// - Admin operations
+// - Reports
+// - Suppliers and expenses
 
 app.use('/api', require('./routes'));
 
-// --------------------------------------------------
-// WEBSITE SETTINGS
-// --------------------------------------------------
+// Brevo receipt email routes
+app.use(
+  '/api/receipt-emails',
+  require('./routes/receiptEmailRoutes')
+);
+
+// ======================================================
+// PUBLIC WEBSITE SETTINGS
+// ======================================================
 
 app.get('/api/settings', async (req, res, next) => {
   try {
@@ -180,14 +242,15 @@ app.get('/api/settings', async (req, res, next) => {
     });
 
     res.json({ settings });
+
   } catch (error) {
     next(error);
   }
 });
 
-// --------------------------------------------------
-// FRONTEND FILES
-// --------------------------------------------------
+// ======================================================
+// FRONTEND STATIC FILES
+// ======================================================
 
 app.use(express.static(frontendPath, {
   maxAge: isProd ? '1d' : 0,
@@ -195,14 +258,20 @@ app.use(express.static(frontendPath, {
   index: false
 }));
 
-// API 404 handler
+// ======================================================
+// API NOT FOUND
+// ======================================================
+
 app.use('/api', (req, res) => {
   res.status(404).json({
     error: 'API endpoint not found'
   });
 });
 
-// Frontend fallback
+// ======================================================
+// FRONTEND FALLBACK
+// ======================================================
+
 app.get('*', (req, res) => {
   if (req.path.startsWith('/uploads')) {
     return res.status(404).send('Not found');
@@ -227,9 +296,9 @@ app.get('*', (req, res) => {
   });
 });
 
-// --------------------------------------------------
+// ======================================================
 // GLOBAL ERROR HANDLER
-// --------------------------------------------------
+// ======================================================
 
 app.use((error, req, res, next) => {
   console.error('Server error:', error);
@@ -254,9 +323,9 @@ app.use((error, req, res, next) => {
   });
 });
 
-// --------------------------------------------------
+// ======================================================
 // DATABASE INITIALIZATION
-// --------------------------------------------------
+// ======================================================
 
 async function initializeDatabase() {
   console.log('Initializing Mawego Bookshop database...');
@@ -270,15 +339,17 @@ async function initializeDatabase() {
   console.log('Database initialization completed.');
 }
 
-// --------------------------------------------------
+// ======================================================
 // SERVER SHUTDOWN
-// --------------------------------------------------
+// ======================================================
 
 let server;
 let shuttingDown = false;
 
 async function shutdown(signal) {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    return;
+  }
 
   shuttingDown = true;
 
@@ -295,8 +366,11 @@ async function shutdown(signal) {
     if (server) {
       await new Promise((resolve, reject) => {
         server.close(error => {
-          if (error) reject(error);
-          else resolve();
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
         });
       });
     }
@@ -310,14 +384,18 @@ async function shutdown(signal) {
     process.exit(0);
 
   } catch (error) {
-    console.error('Shutdown error:', error.message);
+    console.error(
+      'Shutdown error:',
+      error.message
+    );
+
     process.exit(1);
   }
 }
 
-// --------------------------------------------------
+// ======================================================
 // START SERVER
-// --------------------------------------------------
+// ======================================================
 
 async function start() {
   try {
@@ -337,17 +415,28 @@ async function start() {
       console.log('       MAWEGO BOOKSHOP ONLINE');
       console.log('======================================');
       console.log(`Server running on port ${PORT}`);
+      console.log('MongoDB connected');
+      console.log('API routes registered');
       console.log('======================================');
       console.log('');
     });
 
     server.on('error', error => {
-      console.error('HTTP server error:', error.message);
+      console.error(
+        'HTTP server error:',
+        error.message
+      );
+
       process.exitCode = 1;
     });
 
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => {
+      shutdown('SIGTERM');
+    });
+
+    process.on('SIGINT', () => {
+      shutdown('SIGINT');
+    });
 
   } catch (error) {
     console.error('');
@@ -364,6 +453,10 @@ async function start() {
     process.exitCode = 1;
   }
 }
+
+// ======================================================
+// START APPLICATION
+// ======================================================
 
 start();
 

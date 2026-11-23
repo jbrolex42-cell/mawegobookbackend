@@ -1,7 +1,72 @@
-
 const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
+
+// ======================================================
+// M-PESA TRANSACTION MODEL
+// ======================================================
+
+const MpesaTransactionSchema = new Schema(
+  {
+    order_id: {
+      type: Schema.Types.ObjectId,
+      ref: 'Order',
+      required: true,
+      index: true
+    },
+
+    phone: {
+      type: String,
+      required: true
+    },
+
+    amount_kes: {
+      type: Number,
+      required: true
+    },
+
+    account_reference: String,
+
+    merchant_request_id: String,
+
+    checkout_request_id: {
+      type: String,
+      unique: true,
+      sparse: true
+    },
+
+    mpesa_receipt: String,
+
+    status: {
+      type: String,
+      enum: ['initiated', 'pending', 'success', 'failed'],
+      default: 'initiated',
+      index: true
+    },
+
+    result_code: Schema.Types.Mixed,
+
+    result_description: String,
+
+    request_response: Schema.Types.Mixed,
+
+    callback_payload: Schema.Types.Mixed,
+
+    completed_at: Date
+  },
+  {
+    timestamps: {
+      createdAt: 'created_at',
+      updatedAt: 'updated_at'
+    },
+    collection: 'mpesa_transactions'
+  }
+);
+
+MpesaTransactionSchema.index({
+  order_id: 1,
+  created_at: -1
+});
 
 // ======================================================
 // USER MODEL
@@ -767,6 +832,7 @@ module.exports = {
   Product: model('Product', ProductSchema),
   StockLedger: model('StockLedger', StockLedgerSchema),
   Order: model('Order', OrderSchema),
+  MpesaTransaction: model('MpesaTransaction', MpesaTransactionSchema),
   Supplier: model('Supplier', SupplierSchema),
   PurchaseOrder: model('PurchaseOrder', PurchaseOrderSchema),
   PaymentLog: model('PaymentLog', PaymentLogSchema),
