@@ -19,7 +19,6 @@ const mpesaCtrl = require('../controllers/mpesaController');
 const reportCtrl = require('../controllers/reportController');
 const supplierCtrl = require('../controllers/supplierController');
 const expenseCtrl = require('../controllers/expenseController');
-const receiptCtrl = require('../controllers/receiptController');
 const pointsCtrl = require('../controllers/pointsController');
 const notificationCtrl = require('../controllers/notificationController');
 
@@ -67,7 +66,6 @@ const controllers = {
   reportCtrl,
   supplierCtrl,
   expenseCtrl,
-  receiptCtrl,
   pointsCtrl,
   notificationCtrl
 };
@@ -91,6 +89,9 @@ const requiredMethods = {
 
   productCtrl: [
     'categories',
+    'listCategoriesAdmin',
+    'uploadCategoryImage',
+    'removeCategoryImage',
     'listPublic',
     'getBySlug',
     'listAdmin',
@@ -144,11 +145,6 @@ const requiredMethods = {
     'create',
     'update',
     'remove'
-  ],
-
-  receiptCtrl: [
-    'getByOrderId',
-    'getByOrderNumber'
   ],
 
   pointsCtrl: [
@@ -333,6 +329,37 @@ router.get(
 );
 
 // ======================================================
+// ADMIN CATEGORY MANAGEMENT
+// ======================================================
+
+router.get(
+  '/admin/categories',
+  authenticate,
+  requireStaff,
+  productCtrl.listCategoriesAdmin
+);
+
+router.post(
+  '/admin/categories/:id/image',
+  authenticate,
+  requireStaff,
+  (req, res, next) => {
+    req.uploadFolder = 'mawego-bookshop/categories';
+    next();
+  },
+  productImage(),
+  resolveImageUrl,
+  productCtrl.uploadCategoryImage
+);
+
+router.delete(
+  '/admin/categories/:id/image',
+  authenticate,
+  requireStaff,
+  productCtrl.removeCategoryImage
+);
+
+// ======================================================
 // ORDERS
 // ======================================================
 
@@ -346,35 +373,18 @@ router.get(
   '/orders/track/:orderNumber',
   orderCtrl.getByNumber
 );
-
 // ======================================================
 // RECEIPTS
 // ======================================================
 
-// Staff receipt lookup by order ID
-router.get(
-  '/receipts/order/:orderId',
-  authenticate,
-  requireStaff,
-  receiptCtrl.getByOrderId
+// Use the receipt router that reads existing MongoDB orders
+// and returns { success: true, receipt: { ... } }.
+
+router.use(
+  '/receipts',
+  require('./receiptRoutes')
 );
 
-// Customer receipt lookup by order number
-router.get(
-  '/receipts/number/:orderNumber',
-  receiptCtrl.getByOrderNumber
-);
-
-// ======================================================
-// PAYMENTS
-// ======================================================
-
-// ======================================================
-// PAYMENTS
-// ======================================================
-
-// M-Pesa STK Push
-// optionalAuth allows both guest and logged-in customers.
 router.post(
   '/payments/mpesa/stk',
   optionalAuth,

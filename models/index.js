@@ -146,11 +146,17 @@ const UserSchema = new Schema(
 // CATEGORY MODEL
 // ======================================================
 
+
+// ======================================================
+// CATEGORY MODEL
+// ======================================================
+
 const CategorySchema = new Schema(
   {
     name: {
       type: String,
-      required: true
+      required: true,
+      trim: true
     },
 
     slug: {
@@ -160,6 +166,23 @@ const CategorySchema = new Schema(
     },
 
     description: String,
+
+    // Category display image (Cloudinary URL)
+    image_url: {
+      type: String,
+      default: ''
+    },
+
+    // Cloudinary public ID, used when replacing or deleting images
+    image_public_id: {
+      type: String,
+      default: ''
+    },
+
+    image_alt: {
+      type: String,
+      default: ''
+    },
 
     sort_order: {
       type: Number,
@@ -178,6 +201,7 @@ const CategorySchema = new Schema(
     }
   }
 );
+
 
 // ======================================================
 // PRODUCT MODEL

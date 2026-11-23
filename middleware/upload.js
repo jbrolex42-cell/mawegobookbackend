@@ -1,7 +1,3 @@
-/**
- * Product image upload: Cloudinary when configured, otherwise local /uploads.
- * Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in .env
- */
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -57,23 +53,21 @@ const diskUpload = multer({
   }
 });
 
-/** Multer middleware — memory if Cloudinary, else disk */
 function productImage() {
   if (cloudinaryConfigured()) return memoryUpload.single('image');
   return diskUpload.single('image');
 }
 
-/**
- * After multer: if Cloudinary + file buffer, upload and set req.imageUrl
- * If disk, set req.imageUrl to /uploads/...
- */
 async function resolveImageUrl(req, res, next) {
   try {
     if (!req.file) return next();
 
     if (cloudinaryConfigured() && req.file.buffer) {
       const cld = getCloudinary();
-      const folder = process.env.CLOUDINARY_FOLDER || 'mawego-bookshop/products';
+      const folder =
+       req.uploadFolder ||
+   process.env.CLOUDINARY_FOLDER ||
+  'mawego-bookshop/products';   
       const result = await new Promise((resolve, reject) => {
         const stream = cld.uploader.upload_stream(
           {

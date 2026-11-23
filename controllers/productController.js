@@ -1,14 +1,16 @@
 const { Product, Category, StockLedger, Order, OrderItem } = require('../models');
 const { slugify, parsePagination, serialize, serializeMany, enrichProductPricing } = require('../utils/helpers');
-
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
-
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isObjectId = (v) => /^[a-f\d]{24}$/i.test(String(v || ''));
 const toBool = (v) => v === true || v === 1 || v === '1' || v === 'true';
 const toNumberOrNull = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+const fs = require('fs');
+const path = require('path');
+
+const {
+  cloudinaryConfigured,
+  getCloudinary
+} = require('../middleware/upload');
 
 /** Admin lists need more rows than the public pagination helper allows. */
 function parseAdminPagination(query) {
@@ -67,6 +69,147 @@ exports.categories = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load categories' });
+  }
+};
+
+// ======================================================
+// CATEGORY IMAGE MANAGEMENT
+// ======================================================
+
+exports.listCategoriesAdmin = async (req, res) => {
+  try {
+    const categories = await Category.find({})
+      .sort({ sort_order: 1, name: 1 });
+
+    res.json({
+      categories: serializeMany(categories)
+    });
+  } catch (err) {
+    console.error('Admin categories error:', err);
+
+    res.status(500).json({
+      error: 'Failed to load categories'
+    });
+  }
+};
+
+async function deleteCategoryImage(category) {
+  // Delete from Cloudinary when a Cloudinary public ID exists.
+  if (category.image_public_id && cloudinaryConfigured()) {
+    try {
+      const cloudinary = getCloudinary();
+
+      await cloudinary.uploader.destroy(
+        category.image_public_id,
+        { resource_type: 'image' }
+      );
+    } catch (err) {
+      console.error('Cloudinary category image deletion failed:', err.message);
+    }
+  }
+
+  // Delete local uploads safely when the image is stored locally.
+  const imageUrl = category.image_url || '';
+
+  if (imageUrl.startsWith('/uploads/')) {
+    const filename = path.basename(imageUrl);
+    const filepath = path.join(__dirname, '..', 'uploads', filename);
+
+    if (fs.existsSync(filepath)) {
+      try {
+        fs.unlinkSync(filepath);
+      } catch (err) {
+        console.error('Local category image deletion failed:', err.message);
+      }
+    }
+  }
+}
+
+exports.uploadCategoryImage = async (req, res) => {
+  try {
+    if (!isObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid category ID' });
+    }
+
+    if (!req.file || !req.imageUrl) {
+      return res.status(400).json({
+        error: 'Please select a category image'
+      });
+    }
+
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({
+        error: 'Category not found'
+      });
+    }
+
+    // Preserve the old image until the new upload has succeeded.
+    const oldImage = {
+      image_url: category.image_url,
+      image_public_id: category.image_public_id
+    };
+
+    category.image_url = req.imageUrl;
+    category.image_public_id = req.cloudinaryPublicId || '';
+    category.image_alt = String(req.body.image_alt || category.name).trim();
+
+    await category.save();
+
+    // Remove the previous image only after the database update succeeds.
+    await deleteCategoryImage(oldImage);
+
+    res.json({
+      message: 'Category image uploaded successfully',
+      category: serialize(category)
+    });
+  } catch (err) {
+    console.error('Category image upload error:', err);
+
+    res.status(500).json({
+      error: 'Failed to upload category image'
+    });
+  }
+};
+
+exports.removeCategoryImage = async (req, res) => {
+  try {
+    if (!isObjectId(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid category ID' });
+    }
+
+    const category = await Category.findById(req.params.id);
+
+    if (!category) {
+      return res.status(404).json({
+        error: 'Category not found'
+      });
+    }
+
+    const oldImage = {
+      image_url: category.image_url,
+      image_public_id: category.image_public_id
+    };
+
+    category.image_url = '';
+    category.image_public_id = '';
+    category.image_alt = '';
+
+    await category.save();
+
+    await deleteCategoryImage(oldImage);
+
+    res.json({
+      message: 'Category image removed successfully',
+      category: serialize(category)
+    });
+  } catch (err) {
+    console.error('Category image removal error:', err);
+
+    res.status(500).json({
+      error: 'Failed to remove category image'
+    });
   }
 };
 
