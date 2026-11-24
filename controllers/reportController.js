@@ -1,433 +1,764 @@
 
-const { Order, Product, Category, Expense } = require('../models');
+'use strict';
+
+const mongoose = require('mongoose');
+
+const {
+  Order,
+  Product,
+  Category,
+  Expense
+} = require('../models');
+
 const { serializeMany } = require('../utils/helpers');
 
-function startOfDay(date) {
-  const x = new Date(date);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
+/* -------------------------------------------------------------------------- */
+/* Configuration                                                              */
+/* -------------------------------------------------------------------------- */
 
-function endOfDay(date) {
-  const x = new Date(date);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
+const ACTIVE_ORDER_STATUSES = [
+  'pending',
+  'confirmed',
+  'processing',
+  'ready',
+  'out_for_delivery'
+];
 
-function validDateRange(from, to) {
-  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const RECENT_ORDER_LIMIT = 8;
+const TOP_PRODUCTS_LIMIT = 15;
 
-  if (!datePattern.test(from) || !datePattern.test(to)) {
+/* -------------------------------------------------------------------------- */
+/* General Helpers                                                            */
+/* -------------------------------------------------------------------------- */
+
+const logError = (context, error) => {
+  console.error(`[ReportsController] ${context}`, {
+    message: error?.message,
+    name: error?.name
+  });
+};
+
+const toNumber = (value, fallback = 0) => {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : fallback;
+};
+
+const roundMoney = (value) => {
+  return Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
+};
+
+const startOfDay = (date) => {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+};
+
+const endOfDay = (date) => {
+  const value = new Date(date);
+  value.setHours(23, 59, 59, 999);
+  return value;
+};
+
+const formatDate = (date) => {
+  const value = new Date(date);
+
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
+
+const currentDate = () => formatDate(new Date());
+
+const firstDayOfCurrentMonth = () => {
+  const now = new Date();
+
+  return formatDate(
+    new Date(now.getFullYear(), now.getMonth(), 1)
+  );
+};
+
+/**
+ * Strictly validates YYYY-MM-DD dates without accepting invalid calendar dates.
+ */
+const isValidDate = (value) => {
+  if (typeof value !== 'string') return false;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;
   }
 
-  const fromDate = new Date(`${from}T00:00:00`);
-  const toDate = new Date(`${to}T00:00:00`);
+  const [year, month, day] = value.split('-').map(Number);
+
+  const date = new Date(year, month - 1, day);
 
   return (
-    !Number.isNaN(fromDate.getTime()) &&
-    !Number.isNaN(toDate.getTime()) &&
-    fromDate.toISOString().slice(0, 10) === from &&
-    toDate.toISOString().slice(0, 10) === to &&
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+};
+
+const validDateRange = (from, to) => {
+  return (
+    isValidDate(from) &&
+    isValidDate(to) &&
     from <= to
   );
-}
+};
 
+const getDateRange = (query = {}) => {
+  const from = query.from || firstDayOfCurrentMonth();
+  const to = query.to || currentDate();
+
+  if (!validDateRange(from, to)) {
+    return {
+      error: 'Invalid date range. Use YYYY-MM-DD and ensure the start date is not after the end date.'
+    };
+  }
+
+  return {
+    from,
+    to,
+    start: startOfDay(`${from}T00:00:00`),
+    end: endOfDay(`${to}T00:00:00`)
+  };
+};
+
+const getPaidOrderFilter = (start, end) => ({
+  payment_status: 'paid',
+  created_at: {
+    $gte: start,
+    $lte: end
+  }
+});
+
+const getProductIdsFromOrders = (orders) => {
+  const ids = new Set();
+
+  for (const order of orders) {
+    for (const item of order.items || []) {
+      const id = item.product_id;
+
+      if (
+        id &&
+        mongoose.Types.ObjectId.isValid(String(id))
+      ) {
+        ids.add(String(id));
+      }
+    }
+  }
+
+  return [...ids];
+};
+
+const getProductCostMap = async (productIds) => {
+  if (!productIds.length) {
+    return new Map();
+  }
+
+  const products = await Product.find({
+    _id: {
+      $in: productIds
+    }
+  })
+    .select('_id cost_kes')
+    .lean();
+
+  return new Map(
+    products.map((product) => [
+      String(product._id),
+      toNumber(product.cost_kes)
+    ])
+  );
+};
+
+const getItemQuantity = (item) => {
+  return Math.max(0, toNumber(item.quantity));
+};
+
+const getItemUnitPrice = (item) => {
+  return Math.max(0, toNumber(item.unit_price_kes));
+};
+
+const getItemLineTotal = (item) => {
+  const explicitTotal = Number(item.line_total_kes);
+
+  if (Number.isFinite(explicitTotal)) {
+    return Math.max(0, explicitTotal);
+  }
+
+  return getItemUnitPrice(item) * getItemQuantity(item);
+};
+
+/**
+ * Calculate cost of goods using the available product cost information.
+ *
+ * Note: this uses the current product cost, unless the order item stores
+ * a historical unit_cost_kes field.
+ */
+const calculateCostOfGoods = (item, costMap) => {
+  const quantity = getItemQuantity(item);
+
+  const historicalCost = Number(item.unit_cost_kes);
+
+  const unitCost = Number.isFinite(historicalCost)
+    ? historicalCost
+    : costMap.get(String(item.product_id)) || 0;
+
+  return Math.max(0, unitCost) * quantity;
+};
+
+const sum = (items, selector) => {
+  return items.reduce(
+    (total, item) => total + toNumber(selector(item)),
+    0
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/* Dashboard                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GET /api/reports/dashboard
+ *
+ * Provides:
+ * - Today's sales
+ * - Monthly sales
+ * - Pending orders
+ * - Inventory statistics
+ * - Gross profit estimate
+ * - Recent orders
+ * - Low stock products
+ */
 exports.dashboard = async (req, res) => {
   try {
     const now = new Date();
+
     const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
+
     const monthStart = new Date(
       now.getFullYear(),
       now.getMonth(),
       1
     );
 
-    const paidToday = await Order.find({
-      payment_status: 'paid',
-      created_at: { $gte: todayStart }
-    });
+    const [
+      todaySales,
+      monthSales,
+      pendingOrders,
+      inventoryStats,
+      lowStockCount,
+      lowStockProducts,
+      recentOrders
+    ] = await Promise.all([
+      Order.aggregate([
+        {
+          $match: getPaidOrderFilter(todayStart, todayEnd)
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $ifNull: ['$total_kes', 0]
+              }
+            },
+            count: {
+              $sum: 1
+            }
+          }
+        }
+      ]),
 
-    const paidMonth = await Order.find({
-      payment_status: 'paid',
-      created_at: { $gte: monthStart }
-    });
+      Order.aggregate([
+        {
+          $match: getPaidOrderFilter(monthStart, now)
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $ifNull: ['$total_kes', 0]
+              }
+            },
+            count: {
+              $sum: 1
+            }
+          }
+        }
+      ]),
 
-    const pending_orders = await Order.countDocuments({
-      order_status: {
-        $in: [
-          'pending',
-          'confirmed',
-          'processing',
-          'ready',
-          'out_for_delivery'
-        ]
-      }
-    });
+      Order.countDocuments({
+        order_status: {
+          $in: ACTIVE_ORDER_STATUSES
+        }
+      }),
 
-    const activeProducts = await Product.find({
-      is_active: true
-    });
+      Product.aggregate([
+        {
+          $match: {
+            is_active: true
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total_products: {
+              $sum: 1
+            },
+            total_units: {
+              $sum: {
+                $ifNull: ['$stock_qty', 0]
+              }
+            }
+          }
+        }
+      ]),
 
-    const low_stock_products = activeProducts
-      .filter(
-        (p) => p.stock_qty <= p.low_stock_threshold
-      )
-      .sort((a, b) => a.stock_qty - b.stock_qty)
-      .slice(0, 10)
-      .map((p) => ({
-        id: String(p._id),
-        name: p.name,
-        sku: p.sku,
-        stock_qty: p.stock_qty,
-        low_stock_threshold: p.low_stock_threshold,
-        price_kes: p.price_kes
-      }));
+      Product.countDocuments({
+        is_active: true,
+        $expr: {
+          $lte: [
+            {
+              $ifNull: ['$stock_qty', 0]
+            },
+            {
+              $ifNull: ['$low_stock_threshold', 0]
+            }
+          ]
+        }
+      }),
 
-    let gross_profit_month = 0;
-
-    const productIds = [
-      ...new Set(
-        paidMonth.flatMap((order) =>
-          (order.items || [])
-            .map((item) => item.product_id)
-            .filter(Boolean)
-            .map(String)
+      Product.find({
+        is_active: true,
+        $expr: {
+          $lte: [
+            {
+              $ifNull: ['$stock_qty', 0]
+            },
+            {
+              $ifNull: ['$low_stock_threshold', 0]
+            }
+          ]
+        }
+      })
+        .select(
+          'name sku stock_qty low_stock_threshold price_kes'
         )
-      )
-    ];
+        .sort({
+          stock_qty: 1,
+          name: 1
+        })
+        .limit(10)
+        .lean(),
 
-    const products = productIds.length
-      ? await Product.find({
-          _id: { $in: productIds }
-        }).select('cost_kes')
-      : [];
+      Order.find({})
+        .select(
+          'order_number customer_name total_kes payment_status order_status created_at'
+        )
+        .sort({
+          created_at: -1,
+          _id: -1
+        })
+        .limit(RECENT_ORDER_LIMIT)
+        .lean()
+    ]);
 
-    const costMap = new Map(
-      products.map((p) => [
-        String(p._id),
-        Number(p.cost_kes) || 0
-      ])
-    );
+    const today = todaySales[0] || {
+      total: 0,
+      count: 0
+    };
 
-    for (const order of paidMonth) {
+    const month = monthSales[0] || {
+      total: 0,
+      count: 0
+    };
+
+    const inventory = inventoryStats[0] || {
+      total_products: 0,
+      total_units: 0
+    };
+
+    /*
+     * Load paid monthly orders for gross profit calculation.
+     * The sales totals above are already calculated in MongoDB.
+     */
+    const monthlyOrders = await Order.find(
+      getPaidOrderFilter(monthStart, now)
+    )
+      .select('items')
+      .lean();
+
+    const productIds = getProductIdsFromOrders(monthlyOrders);
+    const costMap = await getProductCostMap(productIds);
+
+    let grossProfitMonth = 0;
+
+    for (const order of monthlyOrders) {
       for (const item of order.items || []) {
-        const cost = costMap.get(String(item.product_id)) || 0;
+        const revenue = getItemLineTotal(item);
+        const cost = calculateCostOfGoods(item, costMap);
 
-        gross_profit_month +=
-          (
-            Number(item.unit_price_kes) - cost
-          ) * Number(item.quantity);
+        grossProfitMonth += revenue - cost;
       }
     }
 
-    const recent = await Order.find()
-      .sort({ created_at: -1 })
-      .limit(8);
-
-    res.json({
+    return res.json({
       sales_today: {
-        total: paidToday.reduce(
-          (sum, order) => sum + Number(order.total_kes || 0),
-          0
-        ),
-        count: paidToday.length
+        total: roundMoney(today.total),
+        count: today.count
       },
 
       sales_month: {
-        total: paidMonth.reduce(
-          (sum, order) => sum + Number(order.total_kes || 0),
-          0
-        ),
-        count: paidMonth.length
+        total: roundMoney(month.total),
+        count: month.count
       },
 
-      pending_orders,
+      pending_orders: pendingOrders,
 
-      low_stock_count: activeProducts.filter(
-        (p) => p.stock_qty <= p.low_stock_threshold
-      ).length,
+      low_stock_count: lowStockCount,
 
-      total_products: activeProducts.length,
-      gross_profit_month,
+      total_products: inventory.total_products,
 
-      recent_orders: recent.map((o) => ({
-        id: String(o._id),
-        order_number: o.order_number,
-        customer_name: o.customer_name,
-        total_kes: o.total_kes,
-        payment_status: o.payment_status,
-        order_status: o.order_status,
-        created_at: o.created_at
+      total_stock_units: inventory.total_units,
+
+      gross_profit_month: roundMoney(grossProfitMonth),
+
+      recent_orders: recentOrders.map((order) => ({
+        id: String(order._id),
+        order_number: order.order_number,
+        customer_name: order.customer_name,
+        total_kes: order.total_kes,
+        payment_status: order.payment_status,
+        order_status: order.order_status,
+        created_at: order.created_at
       })),
 
-      low_stock_products
+      low_stock_products: lowStockProducts.map((product) => ({
+        id: String(product._id),
+        name: product.name,
+        sku: product.sku,
+        stock_qty: toNumber(product.stock_qty),
+        low_stock_threshold: toNumber(
+          product.low_stock_threshold
+        ),
+        price_kes: toNumber(product.price_kes)
+      }))
     });
+  } catch (error) {
+    logError('Dashboard generation failed', error);
 
-  } catch (err) {
-    console.error('Dashboard error:', err);
-
-    res.status(500).json({
-      error: 'Failed to load dashboard'
+    return res.status(500).json({
+      error: 'Failed to load dashboard.'
     });
   }
 };
 
+/* -------------------------------------------------------------------------- */
+/* Sales Report                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GET /api/reports/sales?from=YYYY-MM-DD&to=YYYY-MM-DD
+ */
 exports.salesReport = async (req, res) => {
   try {
-    const from =
-      req.query.from ||
-      new Date(
-        new Date().getFullYear(),
-        new Date().getMonth(),
-        1
-      ).toISOString().slice(0, 10);
+    const range = getDateRange(req.query);
 
-    const to =
-      req.query.to ||
-      new Date().toISOString().slice(0, 10);
-
-    if (!validDateRange(from, to)) {
+    if (range.error) {
       return res.status(400).json({
-        error: 'Invalid date range. Use YYYY-MM-DD.'
+        error: range.error
       });
     }
 
-    const paid = await Order.find({
-      payment_status: 'paid',
-      created_at: {
-        $gte: startOfDay(from),
-        $lte: endOfDay(to)
-      }
-    });
+    const { from, to, start, end } = range;
+
+    const paidOrders = await Order.find(
+      getPaidOrderFilter(start, end)
+    )
+      .select(
+        'order_number total_kes subtotal_kes delivery_fee_kes payment_method created_at items'
+      )
+      .sort({
+        created_at: 1
+      })
+      .lean();
 
     const summary = {
-      order_count: paid.length,
+      order_count: paidOrders.length,
 
-      revenue: paid.reduce(
-        (sum, o) => sum + Number(o.total_kes || 0),
-        0
+      revenue: roundMoney(
+        sum(paidOrders, (order) => order.total_kes)
       ),
 
-      delivery_fees: paid.reduce(
-        (sum, o) => sum + Number(o.delivery_fee_kes || 0),
-        0
+      delivery_fees: roundMoney(
+        sum(paidOrders, (order) => order.delivery_fee_kes)
       ),
 
-      product_sales: paid.reduce(
-        (sum, o) => sum + Number(o.subtotal_kes || 0),
-        0
+      product_sales: roundMoney(
+        sum(paidOrders, (order) => order.subtotal_kes)
       )
     };
 
-    const byDayMap = {};
-    const byPayMap = {};
-    const productMap = {};
+    const byDayMap = new Map();
+    const byPaymentMap = new Map();
+    const productMap = new Map();
 
-    let gross_profit = 0;
+    const productIds = getProductIdsFromOrders(paidOrders);
+    const costMap = await getProductCostMap(productIds);
 
-    const productIds = [
-      ...new Set(
-        paid.flatMap((order) =>
-          (order.items || [])
-            .map((item) => item.product_id)
-            .filter(Boolean)
-            .map(String)
-        )
-      )
-    ];
+    let grossProfit = 0;
 
-    const products = productIds.length
-      ? await Product.find({
-          _id: { $in: productIds }
-        }).select('cost_kes')
-      : [];
+    for (const order of paidOrders) {
+      const day = formatDate(order.created_at);
 
-    const costMap = new Map(
-      products.map((p) => [
-        String(p._id),
-        Number(p.cost_kes) || 0
-      ])
-    );
-
-    for (const o of paid) {
-      const day = new Date(o.created_at)
-        .toISOString()
-        .slice(0, 10);
-
-      if (!byDayMap[day]) {
-        byDayMap[day] = {
+      if (!byDayMap.has(day)) {
+        byDayMap.set(day, {
           day,
           orders: 0,
           revenue: 0
-        };
+        });
       }
 
-      byDayMap[day].orders++;
-      byDayMap[day].revenue += Number(o.total_kes || 0);
+      const dayEntry = byDayMap.get(day);
 
-      const method = o.payment_method || 'unknown';
+      dayEntry.orders += 1;
+      dayEntry.revenue += toNumber(order.total_kes);
 
-      if (!byPayMap[method]) {
-        byPayMap[method] = {
+      const method = order.payment_method || 'unknown';
+
+      if (!byPaymentMap.has(method)) {
+        byPaymentMap.set(method, {
           payment_method: method,
           count: 0,
           total: 0
-        };
+        });
       }
 
-      byPayMap[method].count++;
-      byPayMap[method].total += Number(o.total_kes || 0);
+      const paymentEntry = byPaymentMap.get(method);
 
-      for (const item of o.items || []) {
-        const key = String(item.product_id);
+      paymentEntry.count += 1;
+      paymentEntry.total += toNumber(order.total_kes);
 
-        if (!productMap[key]) {
-          productMap[key] = {
-            product_name: item.product_name,
-            sku: item.sku,
+      for (const item of order.items || []) {
+        const productId = item.product_id
+          ? String(item.product_id)
+          : `unknown:${item.product_name || 'product'}`;
+
+        if (!productMap.has(productId)) {
+          productMap.set(productId, {
+            product_name: item.product_name || 'Unknown product',
+            sku: item.sku || null,
             qty_sold: 0,
             revenue: 0
-          };
+          });
         }
 
-        const quantity = Number(item.quantity) || 0;
-        const unitPrice = Number(item.unit_price_kes) || 0;
-        const lineTotal = Number(item.line_total_kes) || 0;
-        const cost = costMap.get(key) || 0;
+        const productEntry = productMap.get(productId);
 
-        productMap[key].qty_sold += quantity;
-        productMap[key].revenue += lineTotal;
+        const quantity = getItemQuantity(item);
+        const lineTotal = getItemLineTotal(item);
+        const cost = calculateCostOfGoods(item, costMap);
 
-        gross_profit += (unitPrice - cost) * quantity;
+        productEntry.qty_sold += quantity;
+        productEntry.revenue += lineTotal;
+
+        grossProfit += lineTotal - cost;
       }
     }
 
-    res.json({
+    return res.json({
       from,
       to,
 
       summary: {
         ...summary,
-        gross_profit
+        gross_profit: roundMoney(grossProfit)
       },
 
-      by_day: Object.values(byDayMap).sort(
-        (a, b) => a.day.localeCompare(b.day)
-      ),
+      by_day: [...byDayMap.values()]
+        .map((item) => ({
+          ...item,
+          revenue: roundMoney(item.revenue)
+        }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
 
-      by_payment: Object.values(byPayMap),
+      by_payment: [...byPaymentMap.values()].map((item) => ({
+        ...item,
+        total: roundMoney(item.total)
+      })),
 
-      top_products: Object.values(productMap)
-        .sort((a, b) => b.qty_sold - a.qty_sold)
-        .slice(0, 15)
+      top_products: [...productMap.values()]
+        .map((item) => ({
+          ...item,
+          revenue: roundMoney(item.revenue)
+        }))
+        .sort((a, b) => {
+          return (
+            b.qty_sold - a.qty_sold ||
+            b.revenue - a.revenue
+          );
+        })
+        .slice(0, TOP_PRODUCTS_LIMIT)
     });
+  } catch (error) {
+    logError('Sales report generation failed', error);
 
-  } catch (err) {
-    console.error('Sales report error:', err);
-
-    res.status(500).json({
-      error: 'Failed to generate sales report'
+    return res.status(500).json({
+      error: 'Failed to generate sales report.'
     });
   }
 };
 
+/* -------------------------------------------------------------------------- */
+/* Inventory Report                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GET /api/reports/inventory
+ */
 exports.inventoryReport = async (req, res) => {
   try {
     const products = await Product.find({
       is_active: true
     })
-      .populate('category_id', 'name')
-      .sort({ name: 1 });
+      .select(
+        'sku name stock_qty low_stock_threshold cost_kes price_kes category_id'
+      )
+      .populate({
+        path: 'category_id',
+        select: 'name'
+      })
+      .sort({
+        name: 1
+      })
+      .lean();
 
-    const list = products.map((p) => ({
-      id: String(p._id),
-      sku: p.sku,
-      name: p.name,
-      stock_qty: p.stock_qty,
-      low_stock_threshold: p.low_stock_threshold,
-      cost_kes: p.cost_kes,
-      price_kes: p.price_kes,
+    const list = products.map((product) => {
+      const quantity = toNumber(product.stock_qty);
+      const cost = toNumber(product.cost_kes);
+      const price = toNumber(product.price_kes);
+      const threshold = toNumber(
+        product.low_stock_threshold
+      );
 
-      stock_value_cost:
-        p.stock_qty * (p.cost_kes || 0),
+      return {
+        id: String(product._id),
+        sku: product.sku || null,
+        name: product.name,
 
-      stock_value_retail:
-        p.stock_qty * p.price_kes,
+        stock_qty: quantity,
+        low_stock_threshold: threshold,
 
-      category_name:
-        p.category_id ? p.category_id.name : null
-    }));
+        cost_kes: cost,
+        price_kes: price,
+
+        stock_value_cost: roundMoney(quantity * cost),
+        stock_value_retail: roundMoney(quantity * price),
+
+        category_name: product.category_id
+          ? product.category_id.name
+          : null,
+
+        is_low_stock: quantity <= threshold
+      };
+    });
 
     const totals = {
-      units: list.reduce(
-        (sum, p) => sum + p.stock_qty,
-        0
+      products: list.length,
+
+      units: sum(list, (product) => product.stock_qty),
+
+      value_cost: roundMoney(
+        sum(list, (product) => product.stock_value_cost)
       ),
 
-      value_cost: list.reduce(
-        (sum, p) => sum + p.stock_value_cost,
-        0
+      value_retail: roundMoney(
+        sum(list, (product) => product.stock_value_retail)
       ),
 
-      value_retail: list.reduce(
-        (sum, p) => sum + p.stock_value_retail,
-        0
+      potential_margin: roundMoney(
+        sum(list, (product) =>
+          product.stock_value_retail - product.stock_value_cost
+        )
       ),
 
       low_stock: list.filter(
-        (p) => p.stock_qty <= p.low_stock_threshold
+        (product) => product.is_low_stock
+      ).length,
+
+      out_of_stock: list.filter(
+        (product) => product.stock_qty <= 0
       ).length
     };
 
-    res.json({
+    return res.json({
+      generated_at: new Date(),
+      currency: 'KES',
       products: list,
       totals
     });
+  } catch (error) {
+    logError('Inventory report generation failed', error);
 
-  } catch (err) {
-    console.error('Inventory report error:', err);
-
-    res.status(500).json({
-      error: 'Failed to generate inventory report'
+    return res.status(500).json({
+      error: 'Failed to generate inventory report.'
     });
   }
 };
 
+/* -------------------------------------------------------------------------- */
+/* Profit and Loss Report                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GET /api/reports/profit-loss?from=YYYY-MM-DD&to=YYYY-MM-DD
+ */
 exports.profitLoss = async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const range = getDateRange(req.query);
 
-    const from =
-      req.query.from ||
-      new Date(
-        new Date().getFullYear(),
-        new Date().getMonth(),
-        1
-      ).toISOString().slice(0, 10);
-
-    const to = req.query.to || today;
-
-    if (!validDateRange(from, to)) {
+    if (range.error) {
       return res.status(400).json({
-        error: 'Invalid date range. Use YYYY-MM-DD.'
+        error: range.error
       });
     }
 
-    const orders = await Order.find({
-      payment_status: 'paid',
-      created_at: {
-        $gte: startOfDay(from),
-        $lte: endOfDay(to)
-      }
-    });
+    const { from, to, start, end } = range;
 
-    const expenses = await Expense.find({
-      expense_date: {
-        $gte: from,
-        $lte: to
-      }
-    }).sort({ expense_date: 1 });
+    const [orders, expenses] = await Promise.all([
+      Order.find(getPaidOrderFilter(start, end))
+        .select(
+          'total_kes subtotal_kes delivery_fee_kes items created_at'
+        )
+        .sort({
+          created_at: 1
+        })
+        .lean(),
+
+      Expense.find({
+        expense_date: {
+          $gte: from,
+          $lte: to
+        }
+      })
+        .select(
+          'category description amount_kes expense_date'
+        )
+        .sort({
+          expense_date: 1
+        })
+        .lean()
+    ]);
+
+    const productIds = getProductIdsFromOrders(orders);
+    const costMap = await getProductCostMap(productIds);
 
     let grossSales = 0;
     let productSales = 0;
@@ -435,79 +766,85 @@ exports.profitLoss = async (req, res) => {
     let costOfGoodsSold = 0;
     let totalItemsSold = 0;
 
-    const productIds = [
-      ...new Set(
-        orders.flatMap((order) =>
-          (order.items || [])
-            .map((item) => item.product_id)
-            .filter(Boolean)
-            .map(String)
-        )
-      )
-    ];
-
-    const products = productIds.length
-      ? await Product.find({
-          _id: { $in: productIds }
-        }).select('cost_kes name sku')
-      : [];
-
-    const costMap = new Map(
-      products.map((product) => [
-        String(product._id),
-        Number(product.cost_kes) || 0
-      ])
-    );
+    const dailyMap = new Map();
+    const expenseCategories = new Map();
 
     for (const order of orders) {
-      grossSales += Number(order.total_kes || 0);
-      productSales += Number(order.subtotal_kes || 0);
-      deliveryIncome += Number(order.delivery_fee_kes || 0);
+      const orderTotal = toNumber(order.total_kes);
+      const subtotal = toNumber(order.subtotal_kes);
+      const deliveryFee = toNumber(order.delivery_fee_kes);
+
+      grossSales += orderTotal;
+      productSales += subtotal;
+      deliveryIncome += deliveryFee;
+
+      const day = formatDate(order.created_at);
+
+      if (!dailyMap.has(day)) {
+        dailyMap.set(day, {
+          day,
+          orders: 0,
+          sales_kes: 0,
+          product_cost_kes: 0
+        });
+      }
+
+      const daily = dailyMap.get(day);
+
+      daily.orders += 1;
+      daily.sales_kes += orderTotal;
 
       for (const item of order.items || []) {
-        const quantity = Number(item.quantity) || 0;
-        const cost = costMap.get(String(item.product_id)) || 0;
+        const quantity = getItemQuantity(item);
+        const itemCost = calculateCostOfGoods(item, costMap);
 
         totalItemsSold += quantity;
-        costOfGoodsSold += cost * quantity;
+        costOfGoodsSold += itemCost;
+
+        daily.product_cost_kes += itemCost;
       }
+    }
+
+    let totalExpenses = 0;
+
+    for (const expense of expenses) {
+      const amount = toNumber(expense.amount_kes);
+
+      totalExpenses += amount;
+
+      const category = expense.category || 'Other';
+
+      if (!expenseCategories.has(category)) {
+        expenseCategories.set(category, {
+          category,
+          amount_kes: 0,
+          count: 0
+        });
+      }
+
+      const categoryEntry = expenseCategories.get(category);
+
+      categoryEntry.amount_kes += amount;
+      categoryEntry.count += 1;
     }
 
     const grossProfit = productSales - costOfGoodsSold;
 
-    const totalExpenses = expenses.reduce(
-      (sum, expense) =>
-        sum + Number(expense.amount_kes || 0),
-      0
-    );
+    /*
+     * Delivery income is added separately because delivery fees are
+     * included in order totals but are not product revenue.
+     */
+    const operatingProfit = grossProfit + deliveryIncome;
 
-    const netProfit =
-      grossProfit + deliveryIncome - totalExpenses;
+    const netProfit = operatingProfit - totalExpenses;
 
-    const expenseCategories = {};
-
-    for (const expense of expenses) {
-      const category = expense.category || 'Other';
-
-      if (!expenseCategories[category]) {
-        expenseCategories[category] = {
-          category,
-          amount_kes: 0,
-          count: 0
-        };
-      }
-
-      expenseCategories[category].amount_kes +=
-        Number(expense.amount_kes || 0);
-
-      expenseCategories[category].count++;
-    }
-
-    res.json({
+    return res.json({
       period: {
         from,
         to
       },
+
+      generated_at: new Date(),
 
       currency: 'KES',
 
@@ -515,24 +852,49 @@ exports.profitLoss = async (req, res) => {
         order_count: orders.length,
         items_sold: totalItemsSold,
 
-        gross_sales_kes: grossSales,
-        product_sales_kes: productSales,
-        delivery_income_kes: deliveryIncome,
+        gross_sales_kes: roundMoney(grossSales),
+        product_sales_kes: roundMoney(productSales),
+        delivery_income_kes: roundMoney(deliveryIncome),
 
-        cost_of_goods_sold_kes: costOfGoodsSold,
+        cost_of_goods_sold_kes: roundMoney(
+          costOfGoodsSold
+        ),
 
-        gross_profit_kes: grossProfit,
+        gross_profit_kes: roundMoney(grossProfit),
 
-        operating_expenses_kes: totalExpenses,
+        operating_profit_kes: roundMoney(
+          operatingProfit
+        ),
 
-        net_profit_kes: netProfit
+        operating_expenses_kes: roundMoney(
+          totalExpenses
+        ),
+
+        net_profit_kes: roundMoney(netProfit),
+
+        profit_margin_percent: productSales > 0
+          ? roundMoney(
+              (grossProfit / productSales) * 100
+            )
+          : 0
       },
 
-      expense_breakdown: Object.values(
-        expenseCategories
-      ).sort(
-        (a, b) => b.amount_kes - a.amount_kes
-      ),
+      by_day: [...dailyMap.values()]
+        .map((item) => ({
+          ...item,
+          sales_kes: roundMoney(item.sales_kes),
+          product_cost_kes: roundMoney(
+            item.product_cost_kes
+          )
+        }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+
+      expense_breakdown: [...expenseCategories.values()]
+        .map((item) => ({
+          ...item,
+          amount_kes: roundMoney(item.amount_kes)
+        }))
+        .sort((a, b) => b.amount_kes - a.amount_kes),
 
       expenses: expenses.map((expense) => ({
         id: String(expense._id),
@@ -543,18 +905,28 @@ exports.profitLoss = async (req, res) => {
       })),
 
       notes: [
-        'Only paid orders are included in sales.',
-        'Product costs use the current Product.cost_kes value, not a historical purchase cost.',
-        'Delivery income is included in net profit; delivery operating costs are not separately recorded here.',
-        'Taxes, refunds, payment fees and discounts require separate accounting treatment if applicable.'
+        'Only paid orders are included in sales calculations.',
+        'Historical item.unit_cost_kes is used when available; otherwise current Product.cost_kes is used.',
+        'Delivery income is added separately to product gross profit.',
+        'Recorded expenses are deducted from operating profit.',
+        'Refunds, taxes, payment processing fees and delivery operating costs should be recorded separately for more complete accounting.'
       ]
     });
+  } catch (error) {
+    logError('Profit and loss report generation failed', error);
 
-  } catch (err) {
-    console.error('Profit and loss report error:', err);
-
-    res.status(500).json({
-      error: 'Failed to generate profit and loss report'
+    return res.status(500).json({
+      error: 'Failed to generate profit and loss report.'
     });
   }
 };
+
+/* -------------------------------------------------------------------------- */
+/* Utility Exports                                                            */
+/* -------------------------------------------------------------------------- */
+
+exports.validDateRange = validDateRange;
+exports.getDateRange = getDateRange;
+exports.startOfDay = startOfDay;
+exports.endOfDay = endOfDay;
+exports.roundMoney = roundMoney;

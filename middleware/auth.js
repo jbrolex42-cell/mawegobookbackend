@@ -1,93 +1,447 @@
+
+'use strict';
+
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+
 const { User } = require('../models');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'mawego-dev-secret-change-in-production';
+/* -------------------------------------------------------------------------- */
+/* Configuration                                                              */
+/* -------------------------------------------------------------------------- */
 
-function signToken(user) {
-  return jwt.sign(
-    {
-      id: String(user._id || user.id),
-      email: user.email,
-      role: user.role,
-      name: user.full_name
-    },
-    JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+const JWT_SECRET = process.env.JWT_SECRET;
+
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+const JWT_ISSUER = process.env.JWT_ISSUER || 'mawego-bookshop';
+
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE || 'mawego-api';
+
+const TOKEN_ALGORITHM = 'HS256';
+
+const STAFF_ROLES = [
+  'staff',
+  'manager',
+  'owner'
+];
+
+const MANAGER_ROLES = [
+  'manager',
+  'owner'
+];
+
+/* -------------------------------------------------------------------------- */
+/* Configuration Validation                                                   */
+/* -------------------------------------------------------------------------- */
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'JWT_SECRET must be configured with at least 32 characters in production.'
+    );
+  }
+
+  console.warn(
+    '[Auth] WARNING: JWT_SECRET is missing or too short. Configure a strong secret before deployment.'
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const logError = (context, error) => {
+  console.error(`[Auth] ${context}`, {
+    message: error?.message,
+    name: error?.name
+  });
+};
+
+const isValidObjectId = (value) => {
+  return (
+    typeof value === 'string' &&
+    /^[a-f\d]{24}$/i.test(value)
+  );
+};
+
+const normalizeRole = (role) => {
+  return String(role || '').trim().toLowerCase();
+};
+
+const normalizePermissions = (permissions) => {
+  if (!Array.isArray(permissions)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      permissions
+        .filter((permission) => typeof permission === 'string')
+        .map((permission) => permission.trim())
+        .filter(Boolean)
+    )
+  ];
+};
+
+const getTokenFromRequest = (req) => {
+  const header = req.headers.authorization;
+
+  if (!header || typeof header !== 'string') {
+    return null;
+  }
+
+  const match = header.match(/^Bearer\s+(\S+)$/i);
+
+  return match ? match[1] : null;
+};
+
+const getPublicUser = (user, includePermissions = true) => {
+  const result = {
+    id: String(user._id),
+    email: user.email,
+    full_name: user.full_name,
+    role: normalizeRole(user.role)
+  };
+
+  if (includePermissions) {
+    result.permissions = normalizePermissions(user.permissions);
+  }
+
+  return result;
+};
+
+const getJwtOptions = () => ({
+  algorithm: TOKEN_ALGORITHM,
+  issuer: JWT_ISSUER,
+  audience: JWT_AUDIENCE
+});
+
+const getJwtSecret = () => {
+  if (!JWT_SECRET || JWT_SECRET.length < 32) {
+    throw new Error(
+      'JWT_SECRET is not configured correctly.'
+    );
+  }
+
+  return JWT_SECRET;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Token Signing                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Generate a signed access token.
+ *
+ * Usage:
+ * const token = signToken(user);
+ */
+function signToken(user) {
+  if (!user || (!user._id && !user.id)) {
+    throw new Error('A valid user is required to generate an access token.');
+  }
+
+  const userId = String(user._id || user.id);
+
+  if (!isValidObjectId(userId)) {
+    throw new Error('Invalid user ID.');
+  }
+
+  const role = normalizeRole(user.role);
+
+  if (!role) {
+    throw new Error('User role is required.');
+  }
+
+  const payload = {
+    id: userId,
+    email: user.email,
+    role,
+    name: user.full_name || user.name || ''
+  };
+
+  return jwt.sign(
+    payload,
+    getJwtSecret(),
+    {
+      ...getJwtOptions(),
+      subject: userId,
+      expiresIn: JWT_EXPIRES_IN
+    }
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Token Verification                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Verify a JWT and validate its subject.
+ */
+function verifyToken(token) {
+  if (!token || typeof token !== 'string') {
+    throw new Error('Missing access token.');
+  }
+
+  const payload = jwt.verify(
+    token,
+    getJwtSecret(),
+    {
+      ...getJwtOptions(),
+      algorithms: [TOKEN_ALGORITHM]
+    }
+  );
+
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !isValidObjectId(payload.id)
+  ) {
+    throw new Error('Invalid token payload.');
+  }
+
+  if (payload.sub && payload.sub !== payload.id) {
+    throw new Error('Invalid token subject.');
+  }
+
+  return payload;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Load Authenticated User                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Always reload the user from MongoDB.
+ *
+ * This ensures that:
+ * - Deactivated accounts cannot continue using old tokens.
+ * - Updated roles take effect immediately.
+ * - Updated permissions take effect immediately.
+ */
+async function loadAuthenticatedUser(payload) {
+  if (!isValidObjectId(payload.id)) {
+    return null;
+  }
+
+  const user = await User.findById(payload.id)
+    .select(
+      '_id email full_name role permissions is_active'
+    )
+    .lean();
+
+  if (!user || user.is_active !== true) {
+    return null;
+  }
+
+  return user;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Authentication Middleware                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Require a valid authenticated user.
+ *
+ * Authorization:
+ * Bearer <token>
+ */
 async function authenticate(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authentication required' });
+  const token = getTokenFromRequest(req);
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Authentication required.'
+    });
   }
+
   try {
-    const payload = jwt.verify(header.slice(7), JWT_SECRET);
-    const user = await User.findById(payload.id);
-    if (!user || !user.is_active) {
-      return res.status(401).json({ error: 'User not found or inactive' });
+    const payload = verifyToken(token);
+
+    const user = await loadAuthenticatedUser(payload);
+
+    if (!user) {
+      return res.status(401).json({
+        error: 'User not found or inactive.'
+      });
     }
-    req.user = {
-      id: String(user._id),
-      email: user.email,
-      full_name: user.full_name,
-      role: user.role,
-      permissions: user.permissions || []
-    };
-    next();
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+
+    req.user = getPublicUser(user, true);
+
+    return next();
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({
+        error: 'Access token has expired.'
+      });
+    }
+
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({
+        error: 'Invalid access token.'
+      });
+    }
+
+    logError('Authentication failed', error);
+
+    return res.status(500).json({
+      error: 'Authentication service unavailable.'
+    });
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Optional Authentication                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Authenticate the request when a valid token is supplied.
+ *
+ * Requests without a token continue as guests.
+ * Invalid or expired optional tokens do not authenticate the user.
+ */
 async function optionalAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (header && header.startsWith('Bearer ')) {
-    try {
-      const payload = jwt.verify(header.slice(7), JWT_SECRET);
-      const user = await User.findById(payload.id);
-      if (user && user.is_active) {
-        req.user = {
-          id: String(user._id),
-          email: user.email,
-          full_name: user.full_name,
-          role: user.role
-        };
-      }
-    } catch (_) {}
+  const token = getTokenFromRequest(req);
+
+  if (!token) {
+    return next();
   }
-  next();
-}
 
-function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+  try {
+    const payload = verifyToken(token);
+
+    const user = await loadAuthenticatedUser(payload);
+
+    if (user) {
+      req.user = getPublicUser(user, true);
     }
-    next();
+  } catch (error) {
+    /*
+     * Optional authentication must not reject guest requests.
+     * Invalid tokens are simply treated as unauthenticated.
+     */
+    if (
+      !(error instanceof jwt.JsonWebTokenError) &&
+      !(error instanceof jwt.TokenExpiredError)
+    ) {
+      logError('Optional authentication failed', error);
+    }
+  }
+
+  return next();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Role Authorization                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Require one of the specified roles.
+ *
+ * Example:
+ * router.get('/admin', authenticate, requireRole('owner'), handler);
+ */
+function requireRole(...roles) {
+  const allowedRoles = roles.map(normalizeRole);
+
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Authentication required.'
+      });
+    }
+
+    const userRole = normalizeRole(req.user.role);
+
+    if (!allowedRoles.includes(userRole)) {
+      return res.status(403).json({
+        error: 'You do not have permission to access this resource.'
+      });
+    }
+
+    return next();
   };
 }
 
-function requirePermission(perm) {
+/* -------------------------------------------------------------------------- */
+/* Permission Authorization                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Require a specific permission.
+ *
+ * Owner, manager and staff are treated as trusted staff roles, matching
+ * the behavior of the original middleware.
+ *
+ * Other roles must have the requested permission or wildcard permission.
+ */
+function requirePermission(permission) {
+  const requiredPermission = String(permission || '').trim();
+
+  if (!requiredPermission) {
+    throw new Error('A permission name is required.');
+  }
+
   return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-    if (req.user.role === 'owner') return next();
-    if (['manager', 'staff', 'owner'].includes(req.user.role)) return next();
-    const perms = req.user.permissions || [];
-    if (perms.includes('*') || perms.includes(perm)) return next();
-    return res.status(403).json({ error: 'Insufficient permissions' });
+    if (!req.user) {
+      return res.status(401).json({
+        error: 'Authentication required.'
+      });
+    }
+
+    const role = normalizeRole(req.user.role);
+
+    if (STAFF_ROLES.includes(role)) {
+      return next();
+    }
+
+    const permissions = normalizePermissions(
+      req.user.permissions
+    );
+
+    if (
+      permissions.includes('*') ||
+      permissions.includes(requiredPermission)
+    ) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: 'You do not have permission to perform this action.',
+      required_permission: requiredPermission
+    });
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Convenience Middleware                                                     */
+/* -------------------------------------------------------------------------- */
+
+const requireStaff = requireRole(...STAFF_ROLES);
+
+const requireManager = requireRole(...MANAGER_ROLES);
+
+const requireOwner = requireRole('owner');
+
+/* -------------------------------------------------------------------------- */
+/* Exports                                                                    */
+/* -------------------------------------------------------------------------- */
 
 module.exports = {
   signToken,
+  verifyToken,
+
   authenticate,
   optionalAuth,
+
   requireRole,
   requirePermission,
-  requireStaff: requireRole('staff', 'manager', 'owner'),
-  requireManager: requireRole('manager', 'owner'),
-  requireOwner: requireRole('owner'),
+
+  requireStaff,
+  requireManager,
+  requireOwner,
+
   JWT_SECRET
 };
