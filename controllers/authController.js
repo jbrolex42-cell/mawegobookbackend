@@ -294,7 +294,6 @@ exports.resetPassword = async (req, res) => {
 
     const newPasswordHash = bcrypt.hashSync(password, 12);
 
-    /
     const result = await User.updateOne(
       {
         password_reset_token_hash: tokenHash,

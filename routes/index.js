@@ -20,6 +20,7 @@ const reportCtrl = require('../controllers/reportController');
 const supplierCtrl = require('../controllers/supplierController');
 const expenseCtrl = require('../controllers/expenseController');
 const pointsCtrl = require('../controllers/pointsController');
+const promoCtrl = require('../controllers/promoController');
 const notificationCtrl = require('../controllers/notificationController');
 
 const {
@@ -55,8 +56,10 @@ const controllers = {
   supplierCtrl,
   expenseCtrl,
   pointsCtrl,
-  notificationCtrl
+  promoCtrl,
+  notificationCtrl,
 };
+
 
 const requiredMethods = {
   authCtrl: [
@@ -135,6 +138,129 @@ const requiredMethods = {
     'balance',
     'history'
   ],
+
+  promoCtrl: [
+    'validate',
+    'create',
+    'list'
+  ],
+
+  notificationCtrl: [
+    'list',
+    'unreadCount',
+    'markRead',
+    'markAllRead',
+    'clearRead',
+    'clearAll'
+  ]
+};
+
+
+router.post(
+  '/promos/validate',
+  optionalAuth,
+  promoCtrl.validate
+);
+
+router.get(
+  '/admin/promos',
+  authenticate,
+  requireManager,
+  promoCtrl.list
+);
+
+router.post(
+  '/admin/promos',
+  authenticate,
+  requireManager,
+  promoCtrl.create
+);
+
+
+  router.post(
+  '/orders',
+  optionalAuth,
+  orderCtrl.create
+);
+
+router.get(
+  '/orders/track/:orderNumber',
+  orderCtrl.getByNumber
+);
+
+router.get(
+  '/orders/:id/status',
+  authenticate,
+  orderCtrl.getCustomerStatus
+);
+
+router.post(
+  '/orders/:id/cancel',
+  authenticate,
+  orderCtrl.cancelCustomerOrder
+);
+
+router.post(
+  '/promos/validate',
+  optionalAuth,
+  promoCtrl.validate
+);
+
+router.get(
+  '/admin/promos',
+  authenticate,
+  requireManager,
+  promoCtrl.list
+);
+
+router.post(
+  '/admin/promos',
+  authenticate,
+  requireManager,
+  promoCtrl.create
+);
+
+  supplierCtrl: [
+    'listSuppliers',
+    'createSupplier',
+    'updateSupplier',
+    'listPurchaseOrders',
+    'createPurchaseOrder',
+    'receivePurchaseOrder'
+  ],
+
+  expenseCtrl: [
+    'categories',
+    'list',
+    'create',
+    'update',
+    'remove'
+  ],
+
+  pointsCtrl: [
+    'balance',
+    'history'
+  ],
+   
+  router.post(
+  '/promos/validate',
+  optionalAuth,
+  promoCtrl.validate
+  );
+
+ router.get(
+  '/admin/promos',
+  authenticate,
+  requireManager,
+  promoCtrl.list
+ );
+
+router.post(
+  '/admin/promos',
+  authenticate,
+  requireManager,
+  promoCtrl.create
+);
 
   notificationCtrl: [
     'list',

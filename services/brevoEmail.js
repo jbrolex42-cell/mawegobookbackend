@@ -11,6 +11,22 @@ function escapeHtml(value) {
   }[character]));
 }
 
+function getFrontendUrl() {
+  return (
+    process.env.FRONTEND_URL ||
+    "https://mawegobookshop.vercel.app"
+  ).replace(/\/+$/, "");
+}
+
+function validateEmail(email) {
+  if (
+    typeof email !== "string" ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  ) {
+    throw new Error("Customer email is missing or invalid");
+  }
+}
+
 function getBrevoApi() {
   if (!process.env.BREVO_API_KEY) {
     throw new Error("BREVO_API_KEY is missing");
@@ -30,13 +46,13 @@ function getBrevoApi() {
   return api;
 }
 
-function validateEmail(email) {
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Customer email is missing or invalid");
-  }
-}
-
-async function sendEmail({ email, name, subject, html, attachment }) {
+async function sendEmail({
+  email,
+  name,
+  subject,
+  html,
+  attachment
+}) {
   validateEmail(email);
 
   const message = new brevo.SendSmtpEmail();
@@ -71,6 +87,7 @@ async function sendEmail({ email, name, subject, html, attachment }) {
 
 async function sendWelcomeEmail({ email, customerName }) {
   const safeName = escapeHtml(customerName || "Customer");
+  const frontendUrl = getFrontendUrl();
 
   return sendEmail({
     email,
@@ -84,30 +101,17 @@ async function sendWelcomeEmail({ email, customerName }) {
         </div>
 
         <h2>Hello ${safeName}!</h2>
-
-        <p>Welcome to Mawego Bookshop. We're delighted to have you as part of our Customers.</p>
-
-        <p>Your customer account has been successfully created. You can now:</p>
-
-        <ul>
-          <li>Discover and purchase books.</li>
-          <li>Track your orders.</li>
-          <li>Access your digital receipts.</li>
-          <li>Earn and redeem customer reward points.</li>
-        </ul>
+        <p>Welcome to Mawego Bookshop. We're delighted to have you as part of our customers.</p>
+        <p>Your account has been successfully created. You can now discover books, track orders, access receipts and earn reward points.</p>
 
         <p style="text-align:center;margin:30px 0">
-          <a href="${escapeHtml(process.env.FRONTEND_URL || "https://mawegobookshop.vercel.app")}"
+          <a href="${escapeHtml(frontendUrl)}"
              style="background:#08734e;color:white;padding:14px 25px;text-decoration:none;border-radius:7px;font-weight:bold">
             Start Shopping
           </a>
         </p>
 
         <p>Thank you for choosing Mawego Bookshop!</p>
-
-        <p style="color:#777;font-size:12px">
-          This is an automatic account welcome message.
-        </p>
       </div>
     `
   });
@@ -118,15 +122,14 @@ async function sendPasswordResetEmail({
   customerName,
   resetToken
 }) {
+  if (!resetToken) {
+    throw new Error("Password reset token is missing");
+  }
+
   const safeName = escapeHtml(customerName || "Customer");
 
-  const frontendUrl = (
-    process.env.FRONTEND_URL ||
-    "https://mawegobookshop.vercel.app"
-  ).replace(/\/+$/, "");
-
   const resetUrl =
-    `${frontendUrl}/pages/reset-password.html?token=${encodeURIComponent(resetToken)}`;
+    `${getFrontendUrl()}/pages/reset-password.html?token=${encodeURIComponent(resetToken)}`;
 
   return sendEmail({
     email,
@@ -139,12 +142,9 @@ async function sendPasswordResetEmail({
         </div>
 
         <h2>Password Reset Request</h2>
-
         <p>Hello ${safeName},</p>
-
-        <p>We received a request to reset the password associated with your Mawego Bookshop account.</p>
-
-        <p>Click the button below to create a new password:</p>
+        <p>We received a request to reset your Mawego Bookshop account password.</p>
+        <p>Click below to create a new password:</p>
 
         <p style="text-align:center;margin:30px 0">
           <a href="${escapeHtml(resetUrl)}"
@@ -154,9 +154,7 @@ async function sendPasswordResetEmail({
         </p>
 
         <p>This link expires in 30 minutes and can only be used once.</p>
-
-        <p>If you did not request a password reset, you can safely ignore this email.</p>
-
+        <p>If you did not request a password reset, ignore this email.</p>
         <p>Mawego Bookshop Support</p>
       </div>
     `
@@ -178,10 +176,13 @@ async function sendReceiptEmail({
   const safeName = escapeHtml(customerName || "Customer");
   const safeOrderNumber = escapeHtml(orderNumber || "N/A");
 
+  const filename = `Mawego-Receipt-${String(orderNumber || "order")
+    .replace(/[^a-zA-Z0-9_-]/g, "")}.pdf`;
+
   return sendEmail({
     email,
     name: customerName,
-    subject: `Your Mawego Bookshop Receipt - ${orderNumber}`,
+    subject: `Your Mawego Bookshop Receipt - ${orderNumber || "Order"}`,
     html: `
       <div style="font-family:Arial,sans-serif;color:#222;line-height:1.6">
         <h2 style="color:#08734e">MAWEGO BOOKSHOP</h2>
@@ -193,8 +194,7 @@ async function sendReceiptEmail({
       </div>
     `,
     attachment: [{
-      name: `Mawego-Receipt-${String(orderNumber || "order")
-        .replace(/[^a-zA-Z0-9_-]/g, "")}.pdf`,
+      name: filename,
       content: pdfBuffer.toString("base64")
     }]
   });
@@ -206,3 +206,4 @@ module.exports = {
   sendPasswordResetEmail,
   sendReceiptEmail
 };
+/^[^\s@]+@[^\s@]+\.[^\s@]+$/

@@ -1,6 +1,22 @@
+
+'use strict';
+
 const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
+
+// ============================================================
+// MODEL REGISTRATION HELPER
+// ============================================================
+
+function model(name, schema) {
+  return mongoose.models[name] || mongoose.model(name, schema);
+}
+
+// ============================================================
+// M-PESA TRANSACTION
+// ============================================================
+
 const MpesaTransactionSchema = new Schema(
   {
     order_id: {
@@ -21,7 +37,6 @@ const MpesaTransactionSchema = new Schema(
     },
 
     account_reference: String,
-
     merchant_request_id: String,
 
     checkout_request_id: {
@@ -40,13 +55,9 @@ const MpesaTransactionSchema = new Schema(
     },
 
     result_code: Schema.Types.Mixed,
-
     result_description: String,
-
     request_response: Schema.Types.Mixed,
-
     callback_payload: Schema.Types.Mixed,
-
     completed_at: Date
   },
   {
@@ -62,6 +73,10 @@ MpesaTransactionSchema.index({
   order_id: 1,
   created_at: -1
 });
+
+// ============================================================
+// USER
+// ============================================================
 
 const UserSchema = new Schema(
   {
@@ -131,6 +146,10 @@ const UserSchema = new Schema(
   }
 );
 
+// ============================================================
+// CATEGORY
+// ============================================================
+
 const CategorySchema = new Schema(
   {
     name: {
@@ -179,6 +198,10 @@ const CategorySchema = new Schema(
     }
   }
 );
+
+// ============================================================
+// PRODUCT
+// ============================================================
 
 const ProductSchema = new Schema(
   {
@@ -268,6 +291,10 @@ ProductSchema.index({
   sku: 'text'
 });
 
+// ============================================================
+// STOCK LEDGER
+// ============================================================
+
 const StockLedgerSchema = new Schema(
   {
     product_id: {
@@ -292,7 +319,6 @@ const StockLedgerSchema = new Schema(
     },
 
     reference_type: String,
-
     reference_id: Schema.Types.Mixed,
 
     user_id: {
@@ -310,6 +336,10 @@ const StockLedgerSchema = new Schema(
   }
 );
 
+// ============================================================
+// ORDER ITEMS
+// ============================================================
+
 const OrderItemSchema = new Schema(
   {
     product_id: {
@@ -318,15 +348,10 @@ const OrderItemSchema = new Schema(
     },
 
     product_name: String,
-
     sku: String,
-
     quantity: Number,
-
     unit_price_kes: Number,
-
     original_price_kes: Number,
-
     line_total_kes: Number,
 
     discount_percent: {
@@ -338,6 +363,10 @@ const OrderItemSchema = new Schema(
     _id: false
   }
 );
+
+// ============================================================
+// ORDER
+// ============================================================
 
 const OrderSchema = new Schema(
   {
@@ -371,7 +400,6 @@ const OrderSchema = new Schema(
     },
 
     delivery_address: String,
-
     delivery_notes: String,
 
     delivery_fee_kes: {
@@ -416,14 +444,14 @@ const OrderSchema = new Schema(
     },
 
     mpesa_receipt: String,
-
     card_reference: String,
-
     payment_reference: String,
-
     notes: String,
 
-    items: [OrderItemSchema],
+    items: {
+      type: [OrderItemSchema],
+      default: []
+    },
 
     discount_total_kes: {
       type: Number,
@@ -443,6 +471,23 @@ const OrderSchema = new Schema(
     points_value_kes: {
       type: Number,
       default: 0
+    },
+
+    coupon_code: {
+      type: String,
+      default: null,
+      uppercase: true,
+      trim: true
+    },
+
+    coupon_discount_kes: {
+      type: Number,
+      default: 0
+    },
+
+    points_redeemed_refunded: {
+      type: Boolean,
+      default: false
     }
   },
   {
@@ -453,6 +498,10 @@ const OrderSchema = new Schema(
   }
 );
 
+// ============================================================
+// SUPPLIER
+// ============================================================
+
 const SupplierSchema = new Schema(
   {
     name: {
@@ -461,13 +510,9 @@ const SupplierSchema = new Schema(
     },
 
     contact_person: String,
-
     phone: String,
-
     email: String,
-
     address: String,
-
     notes: String,
 
     is_active: {
@@ -483,6 +528,10 @@ const SupplierSchema = new Schema(
   }
 );
 
+// ============================================================
+// PURCHASE ORDER ITEMS
+// ============================================================
+
 const PurchaseOrderItemSchema = new Schema(
   {
     product_id: {
@@ -491,7 +540,6 @@ const PurchaseOrderItemSchema = new Schema(
     },
 
     quantity: Number,
-
     unit_cost_kes: Number,
 
     received_qty: {
@@ -503,6 +551,10 @@ const PurchaseOrderItemSchema = new Schema(
     _id: true
   }
 );
+
+// ============================================================
+// PURCHASE ORDER
+// ============================================================
 
 const PurchaseOrderSchema = new Schema(
   {
@@ -535,10 +587,12 @@ const PurchaseOrderSchema = new Schema(
     },
 
     ordered_at: Date,
-
     received_at: Date,
 
-    items: [PurchaseOrderItemSchema]
+    items: {
+      type: [PurchaseOrderItemSchema],
+      default: []
+    }
   },
   {
     timestamps: {
@@ -548,6 +602,10 @@ const PurchaseOrderSchema = new Schema(
   }
 );
 
+// ============================================================
+// PAYMENT LOG
+// ============================================================
+
 const PaymentLogSchema = new Schema(
   {
     order_id: {
@@ -556,13 +614,9 @@ const PaymentLogSchema = new Schema(
     },
 
     provider: String,
-
     event_type: String,
-
     request_payload: String,
-
     response_payload: String,
-
     status: String
   },
   {
@@ -573,9 +627,12 @@ const PaymentLogSchema = new Schema(
   }
 );
 
+// ============================================================
+// DELIVERY ZONE
+// ============================================================
+
 const DeliveryZoneSchema = new Schema({
   name: String,
-
   fee_kes: Number,
 
   min_order_kes: {
@@ -588,6 +645,10 @@ const DeliveryZoneSchema = new Schema({
     default: true
   }
 });
+
+// ============================================================
+// SHOP SETTINGS
+// ============================================================
 
 const SettingSchema = new Schema({
   key: {
@@ -604,14 +665,15 @@ const SettingSchema = new Schema({
   }
 });
 
+// ============================================================
+// EXPENSE
+// ============================================================
+
 const ExpenseSchema = new Schema(
   {
     category: String,
-
     amount_kes: Number,
-
     description: String,
-
     expense_date: String,
 
     recorded_by: {
@@ -627,6 +689,10 @@ const ExpenseSchema = new Schema(
   }
 );
 
+// ============================================================
+// ACTIVITY LOG
+// ============================================================
+
 const ActivityLogSchema = new Schema(
   {
     user_id: {
@@ -635,11 +701,8 @@ const ActivityLogSchema = new Schema(
     },
 
     action: String,
-
     entity_type: String,
-
     entity_id: Schema.Types.Mixed,
-
     details: String
   },
   {
@@ -649,6 +712,10 @@ const ActivityLogSchema = new Schema(
     }
   }
 );
+
+// ============================================================
+// REWARDS POINTS LEDGER
+// ============================================================
 
 const PointsLedgerSchema = new Schema(
   {
@@ -687,6 +754,97 @@ const PointsLedgerSchema = new Schema(
     }
   }
 );
+
+// ============================================================
+// PROMO CODE
+// ============================================================
+
+const PromoCodeSchema = new Schema(
+  {
+    code: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      trim: true
+    },
+
+    discount_type: {
+      type: String,
+      enum: ['percent', 'fixed'],
+      required: true
+    },
+
+    discount_value: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+
+    min_order_kes: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    max_discount_kes: {
+      type: Number,
+      default: null
+    },
+
+    usage_limit: {
+      type: Number,
+      default: null
+    },
+
+    used_count: {
+      type: Number,
+      default: 0
+    },
+
+    per_user_limit: {
+      type: Number,
+      default: 1
+    },
+
+    starts_at: {
+      type: Date,
+      default: null
+    },
+
+    expires_at: {
+      type: Date,
+      default: null
+    },
+
+    is_active: {
+      type: Boolean,
+      default: true
+    },
+
+    description: {
+      type: String,
+      default: ''
+    },
+
+    created_by: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    }
+  },
+  {
+    timestamps: {
+      createdAt: 'created_at',
+      updatedAt: 'updated_at'
+    },
+    collection: 'promo_codes'
+  }
+);
+
+// ============================================================
+// NOTIFICATION
+// ============================================================
 
 const NotificationSchema = new Schema(
   {
@@ -727,9 +885,15 @@ const NotificationSchema = new Schema(
       default: null
     },
 
-    order_number: String,
+    order_number: {
+      type: String,
+      default: ''
+    },
 
-    link: String,
+    link: {
+      type: String,
+      default: ''
+    },
 
     is_read: {
       type: Boolean,
@@ -758,10 +922,9 @@ NotificationSchema.index({
   created_at: -1
 });
 
-function model(name, schema) {
-  return mongoose.models[name] ||
-    mongoose.model(name, schema);
-}
+// ============================================================
+// EXPORT ALL MODELS
+// ============================================================
 
 module.exports = {
   User: model('User', UserSchema),
@@ -778,5 +941,6 @@ module.exports = {
   Expense: model('Expense', ExpenseSchema),
   ActivityLog: model('ActivityLog', ActivityLogSchema),
   PointsLedger: model('PointsLedger', PointsLedgerSchema),
+  PromoCode: model('PromoCode', PromoCodeSchema),
   Notification: model('Notification', NotificationSchema)
 };

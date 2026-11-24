@@ -233,3 +233,33 @@ module.exports = {
   sendPasswordResetEmail,
   sendReceiptEmail
 };
+
+
+const {
+  sendEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendReceiptEmail
+} = require('./brevoEmail');
+
+module.exports = {
+  sendEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendReceiptEmail
+};
+
+
+const {
+  sendEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendReceiptEmail
+} = require('./brevoEmail');
+
+module.exports = {
+  sendEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendReceiptEmail
+};
