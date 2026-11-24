@@ -32,13 +32,11 @@ const ReceiptEmailLogSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// General order/status lookup index.
 ReceiptEmailLogSchema.index(
   { order_id: 1, status: 1 },
   { name: "receipt_email_order_status" }
 );
 
-// Allow only ONE pending receipt email per order.
 ReceiptEmailLogSchema.index(
   { order_id: 1 },
   {

@@ -19,10 +19,6 @@ const {
 
 const { slugify } = require('./helpers');
 
-// ======================================================
-// BOOKSHOP CATEGORIES — 55 CATEGORIES
-// ======================================================
-
 const ALL_CATEGORIES = [
   // GENERAL BOOKSHOP CATEGORIES
   {

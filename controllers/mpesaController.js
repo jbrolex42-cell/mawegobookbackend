@@ -10,10 +10,6 @@ const {
 const mpesaService = require('../services/mpesaService');
 const orderController = require('./orderController');
 
-// ------------------------------------------------------
-// PAYMENT LOGGING
-// ------------------------------------------------------
-
 async function logPayment(
   orderId,
   eventType,
@@ -35,10 +31,6 @@ async function logPayment(
   });
 }
 
-// ------------------------------------------------------
-// CALLBACK METADATA
-// ------------------------------------------------------
-
 function getCallbackMetadata(callback) {
   const items = callback.CallbackMetadata?.Item || [];
   const metadata = {};
@@ -51,11 +43,6 @@ function getCallbackMetadata(callback) {
 
   return metadata;
 }
-
-// ------------------------------------------------------
-// INITIATE STK PUSH
-// POST /api/payments/mpesa/stk
-// ------------------------------------------------------
 
 exports.initiateStk = async (req, res) => {
   let transaction = null;
@@ -101,7 +88,6 @@ exports.initiateStk = async (req, res) => {
       });
     }
 
-    // Check ownership for authenticated customers.
     const authenticatedUserId =
       req.user?._id || req.user?.id;
 
@@ -143,7 +129,6 @@ exports.initiateStk = async (req, res) => {
       });
     }
 
-    // Save the transaction before contacting Safaricom.
     transaction = await MpesaTransaction.create({
       order_id: order._id,
       phone: normalizedPhone,
@@ -246,14 +231,8 @@ exports.initiateStk = async (req, res) => {
   }
 };
 
-// ------------------------------------------------------
-// SAFARICOM STK CALLBACK
-// POST /api/payments/mpesa/callback
-// ------------------------------------------------------
 
 exports.callback = async (req, res) => {
-  // Safaricom should always receive an acknowledgement.
-  // Internal processing errors are logged separately.
   try {
     const callback = req.body?.Body?.stkCallback;
 
@@ -266,7 +245,6 @@ exports.callback = async (req, res) => {
       });
     }
 
-    // Match the exact STK transaction.
     const transaction = await MpesaTransaction.findOne({
       checkout_request_id: callback.CheckoutRequestID
     });
@@ -283,7 +261,6 @@ exports.callback = async (req, res) => {
       });
     }
 
-    // Ignore duplicate callbacks for completed payments.
     if (transaction.status === 'success') {
       return res.status(200).json({
         ResultCode: 0,
@@ -294,10 +271,6 @@ exports.callback = async (req, res) => {
     transaction.callback_payload = req.body;
     transaction.result_code = callback.ResultCode;
     transaction.result_description = callback.ResultDesc;
-
-    // --------------------------------------------------
-    // SUCCESSFUL PAYMENT CALLBACK
-    // --------------------------------------------------
 
     if (Number(callback.ResultCode) === 0) {
       const metadata = getCallbackMetadata(callback);
@@ -313,7 +286,6 @@ exports.callback = async (req, res) => {
         );
       }
 
-      // A successful callback must include these details.
       if (
         !receipt ||
         !Number.isFinite(paidAmount) ||
@@ -339,7 +311,6 @@ exports.callback = async (req, res) => {
         });
       }
 
-      // Validate the callback against the saved transaction.
       if (paidAmount !== Number(transaction.amount_kes)) {
         transaction.status = 'failed';
         transaction.result_description =
@@ -412,8 +383,6 @@ exports.callback = async (req, res) => {
         });
       }
 
-      // Mark paid using the existing order workflow.
-      // This handles stock, points and the Brevo receipt.
       await orderController.markPaid(order._id, {
         mpesa_receipt: receipt,
         payment_reference: callback.CheckoutRequestID
@@ -445,16 +414,11 @@ exports.callback = async (req, res) => {
       );
 
     } else {
-      // ------------------------------------------------
-      // FAILED OR CANCELLED PAYMENT CALLBACK
-      // ------------------------------------------------
 
       transaction.status = 'failed';
 
       await transaction.save();
-
-      // Do not mark the order failed if another STK
-      // attempt for this order is still pending.
+      
       const anotherPendingTransaction =
         await MpesaTransaction.exists({
           order_id: transaction.order_id,

@@ -1,11 +1,6 @@
 const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
-
-// ======================================================
-// M-PESA TRANSACTION MODEL
-// ======================================================
-
 const MpesaTransactionSchema = new Schema(
   {
     order_id: {
@@ -68,10 +63,6 @@ MpesaTransactionSchema.index({
   created_at: -1
 });
 
-// ======================================================
-// USER MODEL
-// ======================================================
-
 const UserSchema = new Schema(
   {
     email: {
@@ -115,7 +106,6 @@ const UserSchema = new Schema(
       default: 0
     },
 
-    // Password recovery
     password_reset_token_hash: {
       type: String,
       default: null,
@@ -128,7 +118,6 @@ const UserSchema = new Schema(
       select: false
     },
 
-    // Welcome email tracking
     welcome_email_sent_at: {
       type: Date,
       default: null
@@ -141,15 +130,6 @@ const UserSchema = new Schema(
     }
   }
 );
-
-// ======================================================
-// CATEGORY MODEL
-// ======================================================
-
-
-// ======================================================
-// CATEGORY MODEL
-// ======================================================
 
 const CategorySchema = new Schema(
   {
@@ -167,13 +147,11 @@ const CategorySchema = new Schema(
 
     description: String,
 
-    // Category display image (Cloudinary URL)
     image_url: {
       type: String,
       default: ''
     },
 
-    // Cloudinary public ID, used when replacing or deleting images
     image_public_id: {
       type: String,
       default: ''
@@ -201,11 +179,6 @@ const CategorySchema = new Schema(
     }
   }
 );
-
-
-// ======================================================
-// PRODUCT MODEL
-// ======================================================
 
 const ProductSchema = new Schema(
   {
@@ -295,10 +268,6 @@ ProductSchema.index({
   sku: 'text'
 });
 
-// ======================================================
-// STOCK LEDGER MODEL
-// ======================================================
-
 const StockLedgerSchema = new Schema(
   {
     product_id: {
@@ -341,10 +310,6 @@ const StockLedgerSchema = new Schema(
   }
 );
 
-// ======================================================
-// ORDER ITEM MODEL
-// ======================================================
-
 const OrderItemSchema = new Schema(
   {
     product_id: {
@@ -373,10 +338,6 @@ const OrderItemSchema = new Schema(
     _id: false
   }
 );
-
-// ======================================================
-// ORDER MODEL
-// ======================================================
 
 const OrderSchema = new Schema(
   {
@@ -492,10 +453,6 @@ const OrderSchema = new Schema(
   }
 );
 
-// ======================================================
-// SUPPLIER MODEL
-// ======================================================
-
 const SupplierSchema = new Schema(
   {
     name: {
@@ -526,10 +483,6 @@ const SupplierSchema = new Schema(
   }
 );
 
-// ======================================================
-// PURCHASE ORDER ITEM MODEL
-// ======================================================
-
 const PurchaseOrderItemSchema = new Schema(
   {
     product_id: {
@@ -550,10 +503,6 @@ const PurchaseOrderItemSchema = new Schema(
     _id: true
   }
 );
-
-// ======================================================
-// PURCHASE ORDER MODEL
-// ======================================================
 
 const PurchaseOrderSchema = new Schema(
   {
@@ -599,10 +548,6 @@ const PurchaseOrderSchema = new Schema(
   }
 );
 
-// ======================================================
-// PAYMENT LOG MODEL
-// ======================================================
-
 const PaymentLogSchema = new Schema(
   {
     order_id: {
@@ -628,10 +573,6 @@ const PaymentLogSchema = new Schema(
   }
 );
 
-// ======================================================
-// DELIVERY ZONE MODEL
-// ======================================================
-
 const DeliveryZoneSchema = new Schema({
   name: String,
 
@@ -648,10 +589,6 @@ const DeliveryZoneSchema = new Schema({
   }
 });
 
-// ======================================================
-// SETTINGS MODEL
-// ======================================================
-
 const SettingSchema = new Schema({
   key: {
     type: String,
@@ -666,10 +603,6 @@ const SettingSchema = new Schema({
     default: Date.now
   }
 });
-
-// ======================================================
-// EXPENSE MODEL
-// ======================================================
 
 const ExpenseSchema = new Schema(
   {
@@ -694,10 +627,6 @@ const ExpenseSchema = new Schema(
   }
 );
 
-// ======================================================
-// ACTIVITY LOG MODEL
-// ======================================================
-
 const ActivityLogSchema = new Schema(
   {
     user_id: {
@@ -720,10 +649,6 @@ const ActivityLogSchema = new Schema(
     }
   }
 );
-
-// ======================================================
-// POINTS LEDGER MODEL
-// ======================================================
 
 const PointsLedgerSchema = new Schema(
   {
@@ -762,10 +687,6 @@ const PointsLedgerSchema = new Schema(
     }
   }
 );
-
-// ======================================================
-// NOTIFICATION MODEL
-// ======================================================
 
 const NotificationSchema = new Schema(
   {
@@ -837,18 +758,10 @@ NotificationSchema.index({
   created_at: -1
 });
 
-// ======================================================
-// MODEL REGISTRATION
-// ======================================================
-
 function model(name, schema) {
   return mongoose.models[name] ||
     mongoose.model(name, schema);
 }
-
-// ======================================================
-// EXPORT ALL MODELS
-// ======================================================
 
 module.exports = {
   User: model('User', UserSchema),

@@ -58,10 +58,6 @@ async function hasSalesHistory(productId) {
   return false;
 }
 
-/* ------------------------------------------------------------------ */
-/* Public                                                              */
-/* ------------------------------------------------------------------ */
-
 exports.categories = async (req, res) => {
   try {
     const categories = await Category.find({ is_active: true }).sort({ sort_order: 1, name: 1 });
@@ -71,10 +67,6 @@ exports.categories = async (req, res) => {
     res.status(500).json({ error: 'Failed to load categories' });
   }
 };
-
-// ======================================================
-// CATEGORY IMAGE MANAGEMENT
-// ======================================================
 
 exports.listCategoriesAdmin = async (req, res) => {
   try {
@@ -94,7 +86,7 @@ exports.listCategoriesAdmin = async (req, res) => {
 };
 
 async function deleteCategoryImage(category) {
-  // Delete from Cloudinary when a Cloudinary public ID exists.
+
   if (category.image_public_id && cloudinaryConfigured()) {
     try {
       const cloudinary = getCloudinary();
@@ -108,7 +100,6 @@ async function deleteCategoryImage(category) {
     }
   }
 
-  // Delete local uploads safely when the image is stored locally.
   const imageUrl = category.image_url || '';
 
   if (imageUrl.startsWith('/uploads/')) {
@@ -145,7 +136,6 @@ exports.uploadCategoryImage = async (req, res) => {
       });
     }
 
-    // Preserve the old image until the new upload has succeeded.
     const oldImage = {
       image_url: category.image_url,
       image_public_id: category.image_public_id
@@ -157,7 +147,6 @@ exports.uploadCategoryImage = async (req, res) => {
 
     await category.save();
 
-    // Remove the previous image only after the database update succeeds.
     await deleteCategoryImage(oldImage);
 
     res.json({

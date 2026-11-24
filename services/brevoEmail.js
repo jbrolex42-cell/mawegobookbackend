@@ -69,7 +69,6 @@ async function sendEmail({ email, name, subject, html, attachment }) {
   };
 }
 
-// 1. WELCOME EMAIL
 async function sendWelcomeEmail({ email, customerName }) {
   const safeName = escapeHtml(customerName || "Customer");
 
@@ -86,7 +85,7 @@ async function sendWelcomeEmail({ email, customerName }) {
 
         <h2>Hello ${safeName}!</h2>
 
-        <p>Welcome to Mawego Bookshop. We're delighted to have you as part of our reading community.</p>
+        <p>Welcome to Mawego Bookshop. We're delighted to have you as part of our Customers.</p>
 
         <p>Your customer account has been successfully created. You can now:</p>
 
@@ -114,7 +113,6 @@ async function sendWelcomeEmail({ email, customerName }) {
   });
 }
 
-// 2. PASSWORD RESET EMAIL
 async function sendPasswordResetEmail({
   email,
   customerName,
@@ -165,7 +163,6 @@ async function sendPasswordResetEmail({
   });
 }
 
-// 3. EXISTING ORDER RECEIPT EMAIL
 async function sendReceiptEmail({
   email,
   customerName,

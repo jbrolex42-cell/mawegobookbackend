@@ -22,7 +22,6 @@ async function sendOrderReceipt(order, options = {}) {
 
   const orderId = order._id;
 
-  // Do not send another automatic receipt if one was already sent.
   if (!force) {
     const existingSent = await ReceiptEmailLog.findOne({
       order_id: orderId,
@@ -38,8 +37,6 @@ async function sendOrderReceipt(order, options = {}) {
     }
   }
 
-  // Create a fresh attempt so previous failed/sent records remain intact.
-  // The unique pending index prevents simultaneous processing.
   let log;
 
   try {
@@ -50,7 +47,7 @@ async function sendOrderReceipt(order, options = {}) {
       attempts: 1
     });
   } catch (error) {
-    // MongoDB duplicate-key error means another request owns the pending slot.
+
     if (error.code === 11000) {
       return {
         success: false,

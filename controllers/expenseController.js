@@ -8,10 +8,6 @@ const {
   parsePagination
 } = require('../utils/helpers');
 
-// ==================================================
-// EXPENSE CATEGORIES
-// ==================================================
-
 const EXPENSE_CATEGORIES = [
   'Rent',
   'Salaries',
@@ -40,10 +36,6 @@ exports.categories = async (req, res) => {
     });
   }
 };
-
-// ==================================================
-// LIST EXPENSES
-// ==================================================
 
 exports.list = async (req, res) => {
   try {
@@ -91,10 +83,6 @@ exports.list = async (req, res) => {
     });
   }
 };
-
-// ==================================================
-// CREATE EXPENSE
-// ==================================================
 
 exports.create = async (req, res) => {
   try {
@@ -146,10 +134,6 @@ exports.create = async (req, res) => {
     });
   }
 };
-
-// ==================================================
-// UPDATE EXPENSE
-// ==================================================
 
 exports.update = async (req, res) => {
   try {
@@ -232,10 +216,6 @@ exports.update = async (req, res) => {
     });
   }
 };
-
-// ==================================================
-// DELETE EXPENSE
-// ==================================================
 
 exports.remove = async (req, res) => {
   try {

@@ -29,19 +29,11 @@ const {
 
 const router = express.Router();
 
-// ======================================================
-// UPLOAD DIRECTORY
-// ======================================================
-
 const uploadDir = path.join(__dirname, '..', 'uploads');
 
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
-
-// ======================================================
-// PASSWORD RESET RATE LIMITER
-// ======================================================
 
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -52,10 +44,6 @@ const passwordResetLimiter = rateLimit({
     error: 'Too many password reset attempts. Please try again later.'
   }
 });
-
-// ======================================================
-// CONTROLLER REGISTRATION
-// ======================================================
 
 const controllers = {
   authCtrl,
@@ -69,10 +57,6 @@ const controllers = {
   pointsCtrl,
   notificationCtrl
 };
-
-// ======================================================
-// REQUIRED CONTROLLER METHODS
-// ======================================================
 
 const requiredMethods = {
   authCtrl: [
@@ -162,10 +146,6 @@ const requiredMethods = {
   ]
 };
 
-// ======================================================
-// CONTROLLER VALIDATION
-// ======================================================
-
 const missingMethods = [];
 
 for (const [controllerName, methods] of Object.entries(requiredMethods)) {
@@ -190,47 +170,33 @@ if (missingMethods.length > 0) {
   throw new Error('Controller validation failed');
 }
 
-// ======================================================
-// AUTHENTICATION
-// ======================================================
-
-// Customer registration
 router.post('/auth/register', authCtrl.register);
 
-// Customer login
 router.post('/auth/login', authCtrl.login);
 
-// Forgot password
 router.post(
   '/auth/forgot-password',
   passwordResetLimiter,
   authCtrl.forgotPassword
 );
 
-// Reset password
 router.post(
   '/auth/reset-password',
   passwordResetLimiter,
   authCtrl.resetPassword
 );
 
-// Logged-in customer information
 router.get(
   '/auth/me',
   authenticate,
   authCtrl.me
 );
 
-// Logged-in customer orders
 router.get(
   '/auth/my-orders',
   authenticate,
   authCtrl.myOrders
 );
-
-// ======================================================
-// STAFF MANAGEMENT
-// ======================================================
 
 router.post(
   '/auth/staff',
@@ -253,10 +219,6 @@ router.patch(
   authCtrl.updateStaff
 );
 
-// ======================================================
-// LOYALTY POINTS
-// ======================================================
-
 router.get(
   '/points/balance',
   authenticate,
@@ -268,10 +230,6 @@ router.get(
   authenticate,
   pointsCtrl.history
 );
-
-// ======================================================
-// NOTIFICATIONS
-// ======================================================
 
 router.get(
   '/notifications',
@@ -309,10 +267,6 @@ router.delete(
   notificationCtrl.clearAll
 );
 
-// ======================================================
-// PUBLIC PRODUCTS AND CATEGORIES
-// ======================================================
-
 router.get(
   '/categories',
   productCtrl.categories
@@ -327,10 +281,6 @@ router.get(
   '/products/:slug',
   productCtrl.getBySlug
 );
-
-// ======================================================
-// ADMIN CATEGORY MANAGEMENT
-// ======================================================
 
 router.get(
   '/admin/categories',
@@ -359,10 +309,6 @@ router.delete(
   productCtrl.removeCategoryImage
 );
 
-// ======================================================
-// ORDERS
-// ======================================================
-
 router.post(
   '/orders',
   optionalAuth,
@@ -373,12 +319,6 @@ router.get(
   '/orders/track/:orderNumber',
   orderCtrl.getByNumber
 );
-// ======================================================
-// RECEIPTS
-// ======================================================
-
-// Use the receipt router that reads existing MongoDB orders
-// and returns { success: true, receipt: { ... } }.
 
 router.use(
   '/receipts',
@@ -391,14 +331,11 @@ router.post(
   mpesaCtrl.initiateStk
 );
 
-// Safaricom payment callback.
-// This must remain public becauom calls it.
 router.post(
   '/payments/mpesa/callback',
   mpesaCtrl.callback
 );
 
-// Card payments
 router.post(
   '/payments/card/initiate',
   paymentCtrl.cardInitiate
@@ -413,10 +350,6 @@ router.post(
   '/payments/card/callback',
   paymentCtrl.cardCallback
 );
-
-// ======================================================
-// ADMIN PRODUCTS
-// ======================================================
 
 router.get(
   '/admin/products',
@@ -471,10 +404,6 @@ router.post(
   productCtrl.bulkImport
 );
 
-// ======================================================
-// ADMIN ORDERS
-// ======================================================
-
 router.get(
   '/admin/orders',
   authenticate,
@@ -503,10 +432,6 @@ router.post(
   paymentCtrl.adminMarkPaid
 );
 
-// ======================================================
-// REPORTS
-// ======================================================
-
 router.get(
   '/admin/dashboard',
   authenticate,
@@ -534,10 +459,6 @@ router.get(
   requireManager,
   reportCtrl.profitLoss
 );
-
-// ======================================================
-// SUPPLIERS AND PURCHASE ORDERS
-// ======================================================
 
 router.get(
   '/admin/suppliers',
@@ -581,10 +502,6 @@ router.post(
   supplierCtrl.receivePurchaseOrder
 );
 
-// ======================================================
-// EXPENSES
-// ======================================================
-
 router.get(
   '/admin/expenses/categories',
   authenticate,
@@ -620,10 +537,6 @@ router.delete(
   expenseCtrl.remove
 );
 
-// ======================================================
-// PUBLIC SETTINGS
-// ======================================================
-
 router.get('/settings', async (req, res) => {
   try {
     const { Setting } = require('../models');
@@ -645,9 +558,5 @@ router.get('/settings', async (req, res) => {
     });
   }
 });
-
-// ======================================================
-// EXPORT ROUTER
-// ======================================================
 
 module.exports = router;

@@ -159,7 +159,6 @@ exports.create = async (req, res) => {
       });
     }
 
-    // Redeem reward points (logged-in customers only)
     let pointsRedeemed = Math.max(0, parseInt(req.body.points_redeemed, 10) || 0);
     let pointsValueKes = 0;
     if (pointsRedeemed > 0) {
@@ -175,7 +174,6 @@ exports.create = async (req, res) => {
         return res.status(400).json({ error: 'Not enough reward points' });
       }
       pointsValueKes = pointsToKes(pointsRedeemed);
-      // Cap redeem value at subtotal
       if (pointsValueKes > subtotal) {
         pointsValueKes = subtotal;
         pointsRedeemed = Math.ceil(pointsValueKes / 0.5);
@@ -184,7 +182,7 @@ exports.create = async (req, res) => {
 
     const deliveryFee = getDeliveryFee(subtotal, fulfilment_type);
     const total = Math.max(0, subtotal + deliveryFee - pointsValueKes);
-    const pointsEarned = pointsEarnedFromKes(subtotal); // earn on product subtotal
+    const pointsEarned = pointsEarnedFromKes(subtotal); 
     const orderNumber = generateOrderNumber();
     const orderStatus = payment_method === 'cash_on_delivery' ? 'confirmed' : 'pending';
 
@@ -220,7 +218,6 @@ exports.create = async (req, res) => {
       }))
     });
 
-    // Deduct redeemed points immediately
     if (pointsRedeemed > 0 && req.user) {
       const user = await User.findById(req.user.id);
       user.reward_points = Math.max(0, (user.reward_points || 0) - pointsRedeemed);
@@ -237,7 +234,6 @@ exports.create = async (req, res) => {
 
     if (payment_method === 'cash_on_delivery') {
       await deductStockForOrder(order);
-      // Award points on COD when order is placed (confirmed)
       if (req.user && pointsEarned > 0) {
         await awardPoints(req.user.id, order, pointsEarned);
       }
@@ -390,7 +386,6 @@ exports.updateStatus = async (req, res) => {
 
     await order.save();
 
-    // Automatically email the receipt after payment confirmation.
     if (!wasPaid && order.payment_status === 'paid') {
       try {
         await sendOrderReceipt(order);
@@ -448,7 +443,6 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
     await deductStockForOrder(order);
   }
 
-  // Award reward points when payment is confirmed.
   if (order.user_id && order.points_earned > 0) {
     await awardPoints(
       order.user_id,
@@ -457,7 +451,6 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
     );
   }
 
-  // Send receipt after payment, stock and points processing.
   try {
     await sendOrderReceipt(order);
   } catch (emailError) {

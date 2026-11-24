@@ -13,7 +13,6 @@ async function notifyOrderPlaced(order) {
   const name = order.customer_name;
   const fulfilment = order.fulfilment_type === 'delivery' ? 'Delivery' : 'Collection';
 
-  // Admin broadcast
   await Notification.create({
     audience: 'admin',
     user_id: null,
@@ -30,7 +29,6 @@ async function notifyOrderPlaced(order) {
     }
   });
 
-  // Customer (if logged in)
   if (order.user_id) {
     await Notification.create({
       audience: 'customer',
@@ -68,7 +66,7 @@ function scopeFilter(req) {
   if (role === 'customer') {
     return { audience: 'customer', user_id: req.user.id };
   }
-  // staff / manager / owner see admin feed
+
   return { audience: 'admin' };
 }
 

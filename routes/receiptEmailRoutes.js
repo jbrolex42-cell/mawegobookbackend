@@ -16,10 +16,8 @@ const {
 
 const router = express.Router();
 
-// All routes below require an authenticated staff member.
 router.use(authenticate, requireStaff);
 
-// Manually resend a receipt.
 router.post("/resend/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -66,7 +64,6 @@ router.post("/resend/:id", async (req, res) => {
   }
 });
 
-// View receipt email history for an order.
 router.get("/status/:id", async (req, res) => {
   try {
     const { id } = req.params;

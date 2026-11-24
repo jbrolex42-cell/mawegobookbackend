@@ -65,10 +65,6 @@ async function sendEmail({ to, subject, htmlContent, textContent, attachment }) 
   return api.sendTransacEmail(message);
 }
 
-// ==================================================
-// WELCOME EMAIL
-// ==================================================
-
 async function sendWelcomeEmail({ email, customerName }) {
   const name = customerName || 'Valued Customer';
 
@@ -111,10 +107,6 @@ async function sendWelcomeEmail({ email, customerName }) {
       `Welcome to Mawego Bookshop, ${name}! Visit ${FRONTEND_URL} to start shopping.`
   });
 }
-
-// ==================================================
-// PASSWORD RESET EMAIL
-// ==================================================
 
 async function sendPasswordResetEmail({
   email,
@@ -175,10 +167,6 @@ async function sendPasswordResetEmail({
   });
 }
 
-// ==================================================
-// PDF ORDER RECEIPT EMAIL
-// ==================================================
-
 async function sendReceiptEmail({
   email,
   customerName,
@@ -230,10 +218,6 @@ async function sendReceiptEmail({
   });
 }
 
-// ==================================================
-// HTML ESCAPING
-// ==================================================
-
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -242,10 +226,6 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
-// ==================================================
-// EXPORTS
-// ==================================================
 
 module.exports = {
   sendEmail,

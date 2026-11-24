@@ -54,7 +54,6 @@ function getConfig() {
   return config;
 }
 
-// Parse Safaricom API responses safely.
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}));
 
@@ -71,7 +70,6 @@ async function parseResponse(response) {
   return data;
 }
 
-// Generate Nairobi-local Daraja timestamp: YYYYMMDDHHmmss.
 function getTimestamp() {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Africa/Nairobi',
@@ -102,15 +100,12 @@ function getTimestamp() {
   );
 }
 
-// Daraja STK password:
-// Base64(Shortcode + Passkey + Timestamp)
 function createStkPassword(shortcode, passkey, timestamp) {
   return Buffer.from(
     `${shortcode}${passkey}${timestamp}`
   ).toString('base64');
 }
 
-// Normalize Kenyan mobile numbers to 254XXXXXXXXX.
 function normalizePhone(phone) {
   let value = String(phone || '').replace(/\D/g, '');
 
@@ -132,7 +127,6 @@ function normalizePhone(phone) {
   return value;
 }
 
-// Obtain a Daraja OAuth access token.
 async function getAccessToken() {
   const config = getConfig();
 
@@ -162,7 +156,6 @@ async function getAccessToken() {
   return data.access_token;
 }
 
-// Send an STK Push request to Safaricom Daraja.
 async function initiateStkPush({
   phone,
   amount,

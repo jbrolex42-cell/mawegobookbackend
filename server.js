@@ -21,10 +21,6 @@ const isProd = process.env.NODE_ENV === 'production';
 const frontendPath = path.join(__dirname, '..', 'frontend');
 const uploadsPath = path.join(__dirname, 'uploads');
 
-// ======================================================
-// ENVIRONMENT VALIDATION
-// ======================================================
-
 function validateEnv() {
   if (!process.env.MONGODB_URI) {
     throw new Error('MONGODB_URI is required.');
@@ -66,17 +62,9 @@ function validateEnv() {
   }
 }
 
-// ======================================================
-// EXPRESS CONFIGURATION
-// ======================================================
-
 app.disable('x-powered-by');
 
 app.set('trust proxy', 1);
-
-// ======================================================
-// SECURITY HEADERS
-// ======================================================
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -104,10 +92,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ======================================================
-// CORS
-// ======================================================
-
 const corsOrigin = process.env.CORS_ORIGIN;
 
 const allowedOrigins = corsOrigin
@@ -122,10 +106,6 @@ app.use(cors({
   credentials: true
 }));
 
-// ======================================================
-// REQUEST BODY PARSING
-// ======================================================
-
 app.use(express.json({
   limit: '10mb'
 }));
@@ -134,10 +114,6 @@ app.use(express.urlencoded({
   extended: true,
   limit: '10mb'
 }));
-
-// ======================================================
-// API RATE LIMITING
-// ======================================================
 
 app.use('/api/', rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -148,10 +124,6 @@ app.use('/api/', rateLimit({
     error: 'Too many requests. Please try again later.'
   }
 }));
-
-// ======================================================
-// AUTHENTICATION RATE LIMITING
-// ======================================================
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -166,28 +138,16 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// ======================================================
-// UPLOAD DIRECTORY
-// ======================================================
-
 if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, {
     recursive: true
   });
 }
 
-// ======================================================
-// STATIC UPLOADS
-// ======================================================
-
 app.use('/uploads', express.static(uploadsPath, {
   maxAge: isProd ? '7d' : 0,
   etag: true
 }));
-
-// ======================================================
-// HEALTH CHECK
-// ======================================================
 
 app.get('/api/health', (req, res) => {
   const dbConnected =
@@ -202,34 +162,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ======================================================
-// API ROUTES
-// ======================================================
-
-// Central router handles:
-// - Authentication
-// - Products and categories
-// - Orders
-// - M-Pesa STK Push and callback
-// - Card payments
-// - Manual payment confirmation
-// - Receipts
-// - Notifications
-// - Admin operations
-// - Reports
-// - Suppliers and expenses
 
 app.use('/api', require('./routes'));
 
-// Brevo receipt email routes
 app.use(
   '/api/receipt-emails',
   require('./routes/receiptEmailRoutes')
 );
-
-// ======================================================
-// PUBLIC WEBSITE SETTINGS
-// ======================================================
 
 app.get('/api/settings', async (req, res, next) => {
   try {
@@ -248,29 +187,17 @@ app.get('/api/settings', async (req, res, next) => {
   }
 });
 
-// ======================================================
-// FRONTEND STATIC FILES
-// ======================================================
-
 app.use(express.static(frontendPath, {
   maxAge: isProd ? '1d' : 0,
   etag: true,
   index: false
 }));
 
-// ======================================================
-// API NOT FOUND
-// ======================================================
-
 app.use('/api', (req, res) => {
   res.status(404).json({
     error: 'API endpoint not found'
   });
 });
-
-// ======================================================
-// FRONTEND FALLBACK
-// ======================================================
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/uploads')) {
@@ -296,10 +223,6 @@ app.get('*', (req, res) => {
   });
 });
 
-// ======================================================
-// GLOBAL ERROR HANDLER
-// ======================================================
-
 app.use((error, req, res, next) => {
   console.error('Server error:', error);
 
@@ -323,10 +246,6 @@ app.use((error, req, res, next) => {
   });
 });
 
-// ======================================================
-// DATABASE INITIALIZATION
-// ======================================================
-
 async function initializeDatabase() {
   console.log('Initializing Mawego Bookshop database...');
 
@@ -338,10 +257,6 @@ async function initializeDatabase() {
 
   console.log('Database initialization completed.');
 }
-
-// ======================================================
-// SERVER SHUTDOWN
-// ======================================================
 
 let server;
 let shuttingDown = false;
@@ -392,10 +307,6 @@ async function shutdown(signal) {
     process.exit(1);
   }
 }
-
-// ======================================================
-// START SERVER
-// ======================================================
 
 async function start() {
   try {
@@ -453,10 +364,6 @@ async function start() {
     process.exitCode = 1;
   }
 }
-
-// ======================================================
-// START APPLICATION
-// ======================================================
 
 start();
 

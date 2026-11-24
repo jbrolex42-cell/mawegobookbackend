@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 
 const ALL_CATEGORIES = [
-  // GENERAL BOOKSHOP CATEGORIES
+
   {
     name: 'Textbooks',
     slug: 'textbooks',
@@ -108,7 +108,6 @@ const ALL_CATEGORIES = [
     sort_order: 17
   },
 
-  // BUILDING, CONSTRUCTION AND CIVIL ENGINEERING
   {
     name: 'Building & Construction',
     slug: 'building-construction',
@@ -140,7 +139,6 @@ const ALL_CATEGORIES = [
     sort_order: 22
   },
 
-  // ENGINEERING AND INDUSTRIAL TECHNOLOGY
   {
     name: 'Automotive & Motor Vehicle Technology',
     slug: 'automotive-motor-vehicle',
@@ -184,7 +182,6 @@ const ALL_CATEGORIES = [
     sort_order: 29
   },
 
-  // FASHION, BEAUTY AND CREATIVE ARTS
   {
     name: 'Fashion, Textile & Garment Technology',
     slug: 'fashion-textile-garment-technology',
@@ -210,7 +207,6 @@ const ALL_CATEGORIES = [
     sort_order: 33
   },
 
-  // FOOD AND HOSPITALITY
   {
     name: 'Food Science & Technology',
     slug: 'food-science-technology',
@@ -224,7 +220,6 @@ const ALL_CATEGORIES = [
     sort_order: 35
   },
 
-  // AGRICULTURE AND NATURAL RESOURCES
   {
     name: 'Animal Health & Veterinary Studies',
     slug: 'animal-health-veterinary',
@@ -256,7 +251,6 @@ const ALL_CATEGORIES = [
     sort_order: 40
   },
 
-  // APPLIED AND NATURAL SCIENCES
   {
     name: 'Applied Sciences & Laboratory Technology',
     slug: 'applied-sciences-laboratory',
@@ -282,7 +276,6 @@ const ALL_CATEGORIES = [
     sort_order: 44
   },
 
-  // BUSINESS, ADMINISTRATION AND LOGISTICS
   {
     name: 'Procurement & Supply Chain Management',
     slug: 'procurement-supply-chain',
@@ -326,7 +319,6 @@ const ALL_CATEGORIES = [
     sort_order: 51
   },
 
-  // SOCIAL AND INFORMATION STUDIES
   {
     name: 'Social Work & Community Development',
     slug: 'social-work-community-development',
@@ -353,10 +345,6 @@ const ALL_CATEGORIES = [
   }
 ];
 
-// ======================================================
-// DEFAULT DELIVERY ZONES
-// ======================================================
-
 const DEFAULT_DELIVERY_ZONES = [
   {
     name: 'Mawego & nearby',
@@ -377,10 +365,6 @@ const DEFAULT_DELIVERY_ZONES = [
     is_active: 1
   }
 ];
-
-// ======================================================
-// DEFAULT SETTINGS
-// ======================================================
 
 const DEFAULT_SETTINGS = {
   shop_name: 'Mawego Bookshop',

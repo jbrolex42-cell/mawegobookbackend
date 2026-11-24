@@ -35,7 +35,7 @@ function load() {
   }
   try {
     const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-    // Ensure new tables exist on upgrade
+
     const defaults = defaultData();
     for (const key of Object.keys(defaults)) {
       if (data[key] === undefined) data[key] = defaults[key];

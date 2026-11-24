@@ -2,10 +2,6 @@
 const { Order, Product, Category, Expense } = require('../models');
 const { serializeMany } = require('../utils/helpers');
 
-// ==================================================
-// DATE HELPERS
-// ==================================================
-
 function startOfDay(date) {
   const x = new Date(date);
   x.setHours(0, 0, 0, 0);
@@ -36,10 +32,6 @@ function validDateRange(from, to) {
     from <= to
   );
 }
-
-// ==================================================
-// DASHBOARD
-// ==================================================
 
 exports.dashboard = async (req, res) => {
   try {
@@ -180,10 +172,6 @@ exports.dashboard = async (req, res) => {
     });
   }
 };
-
-// ==================================================
-// SALES REPORT
-// ==================================================
 
 exports.salesReport = async (req, res) => {
   try {
@@ -344,10 +332,6 @@ exports.salesReport = async (req, res) => {
   }
 };
 
-// ==================================================
-// INVENTORY REPORT
-// ==================================================
-
 exports.inventoryReport = async (req, res) => {
   try {
     const products = await Product.find({
@@ -410,10 +394,6 @@ exports.inventoryReport = async (req, res) => {
   }
 };
 
-// ==================================================
-// PROFIT AND LOSS REPORT
-// ==================================================
-
 exports.profitLoss = async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -434,7 +414,6 @@ exports.profitLoss = async (req, res) => {
       });
     }
 
-    // Only paid orders count as recognized sales here.
     const orders = await Order.find({
       payment_status: 'paid',
       created_at: {
@@ -443,7 +422,6 @@ exports.profitLoss = async (req, res) => {
       }
     });
 
-    // Operating expenses use the expense_date field.
     const expenses = await Expense.find({
       expense_date: {
         $gte: from,
@@ -451,7 +429,6 @@ exports.profitLoss = async (req, res) => {
       }
     }).sort({ expense_date: 1 });
 
-    // Calculate sales.
     let grossSales = 0;
     let productSales = 0;
     let deliveryIncome = 0;
@@ -496,22 +473,17 @@ exports.profitLoss = async (req, res) => {
       }
     }
 
-    // Calculate gross profit.
     const grossProfit = productSales - costOfGoodsSold;
 
-    // Calculate operating expenses.
     const totalExpenses = expenses.reduce(
       (sum, expense) =>
         sum + Number(expense.amount_kes || 0),
       0
     );
 
-    // Delivery income is included, but delivery costs
-    // are not available in the current known schema.
     const netProfit =
       grossProfit + deliveryIncome - totalExpenses;
 
-    // Group expenses by category.
     const expenseCategories = {};
 
     for (const expense of expenses) {

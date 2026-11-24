@@ -4,7 +4,6 @@ const mongoose = require("mongoose");
 
 const router = express.Router();
 
-// Always use the existing orders collection.
 function getOrdersCollection() {
   if (!mongoose.connection.db) {
     throw new Error("MongoDB database is not connected.");
@@ -13,7 +12,6 @@ function getOrdersCollection() {
   return mongoose.connection.db.collection("orders");
 }
 
-// Generate a consistent receipt number.
 function generateReceiptNumber(order) {
   const date = new Date(
     order.created_at || order.createdAt || Date.now()
@@ -24,7 +22,6 @@ function generateReceiptNumber(order) {
   return `MB-${year}-${String(order._id).slice(-8).toUpperCase()}`;
 }
 
-// Convert database order fields into receipt-friendly fields.
 function normalizeOrder(order) {
   const items = Array.isArray(order.items)
     ? order.items.map(item => {
@@ -145,7 +142,6 @@ function normalizeOrder(order) {
   };
 }
 
-// Shop information.
 function getShopDetails() {
   return {
     name: process.env.SHOP_NAME || "Mawego Bookshop",
@@ -158,7 +154,6 @@ function getShopDetails() {
   };
 }
 
-// Build receipt and save receipt number to existing order.
 async function buildReceipt(order) {
   const collection = getOrdersCollection();
 
@@ -197,7 +192,6 @@ async function buildReceipt(order) {
   };
 }
 
-// GET receipt using MongoDB order ID.
 router.get("/order/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -239,7 +233,6 @@ router.get("/order/:id", async (req, res) => {
   }
 });
 
-// GET receipt using order number and customer phone.
 router.get("/number/:orderNumber", async (req, res) => {
   try {
     const orderNumber = req.params.orderNumber;
