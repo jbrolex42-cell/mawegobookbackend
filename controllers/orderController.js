@@ -24,17 +24,13 @@ const {
   MIN_REDEEM_POINTS
 } = require('../utils/helpers');
 
-const {
-  sendOrderReceipt
-} = require('../services/orderEmailService');
+const { sendOrderReceipt } = require('../services/orderEmailService');
 
-const {
-  validatePromoForCustomer
-} = require('./promoController');
+const { validatePromoForCustomer } = require('./promoController');
 
-// -----------------------------------------------------------------------------
-// Configuration
-// -----------------------------------------------------------------------------
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
 
 const FREE_DELIVERY_THRESHOLD =
   Number(process.env.FREE_DELIVERY_THRESHOLD_KES) || 2000;
@@ -74,9 +70,9 @@ const ALLOWED_PAYMENT_STATUSES = [
   'refunded'
 ];
 
-// -----------------------------------------------------------------------------
-// General helpers
-// -----------------------------------------------------------------------------
+// =============================================================================
+// GENERAL HELPERS
+// =============================================================================
 
 function isValidObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value);
@@ -87,7 +83,7 @@ function normalizeString(value) {
 }
 
 function normalizePhone(value) {
-  return String(value || '').replace(/\s+/g, '');
+  return String(value || '').replace(/[\s-]+/g, '');
 }
 
 function normalizeMoney(value) {
@@ -116,21 +112,20 @@ function getDeliveryFee(subtotal, fulfilmentType) {
   return DEFAULT_DELIVERY_FEE;
 }
 
-function formatCurrency(amount) {
-  return `KES ${Number(amount || 0).toLocaleString('en-KE')}`;
-}
-
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function getErrorMessage(err, fallback = 'An unexpected error occurred.') {
+function getErrorMessage(
+  error,
+  fallback = 'An unexpected error occurred.'
+) {
   if (
-    err &&
-    typeof err.message === 'string' &&
-    err.message.trim()
+    error &&
+    typeof error.message === 'string' &&
+    error.message.trim()
   ) {
-    return err.message;
+    return error.message;
   }
 
   return fallback;
@@ -167,7 +162,11 @@ function getOrderNumber(order) {
 function isOrderCancelled(order) {
   return order?.order_status === 'cancelled';
 }
- 
+
+// =============================================================================
+// STOCK MANAGEMENT
+// =============================================================================
+
 async function deductStockForOrder(order) {
   if (!order?._id) {
     throw new Error('A valid order is required to deduct stock.');
@@ -196,10 +195,11 @@ async function deductStockForOrder(order) {
     const quantity = Math.floor(Number(item.quantity));
 
     if (!isValidObjectId(productId) || quantity < 1) {
-      throw new Error(`Invalid stock item in order ${getOrderNumber(order)}.`);
+      throw new Error(
+        `Invalid stock item in order ${getOrderNumber(order)}.`
+      );
     }
 
-    // Atomically deduct only if sufficient stock remains.
     const product = await Product.findOneAndUpdate(
       {
         _id: productId,
@@ -313,10 +313,19 @@ async function restoreStockForOrder(order) {
   return true;
 }
 
+// =============================================================================
+// REWARD POINTS
+// =============================================================================
+
 async function awardPoints(userId, order, points) {
   const amount = Math.floor(Number(points));
 
-  if (!userId || !order?._id || !Number.isFinite(amount) || amount <= 0) {
+  if (
+    !userId ||
+    !order?._id ||
+    !Number.isFinite(amount) ||
+    amount <= 0
+  ) {
     return false;
   }
 
@@ -342,7 +351,9 @@ async function awardPoints(userId, order, points) {
   );
 
   if (!user) {
-    throw new Error('Unable to award points because the customer was not found.');
+    throw new Error(
+      'Unable to award points because the customer was not found.'
+    );
   }
 
   await PointsLedger.create({
@@ -360,7 +371,12 @@ async function awardPoints(userId, order, points) {
 async function reservePoints(userId, orderId, points, orderNumber) {
   const amount = Math.floor(Number(points));
 
-  if (!userId || !orderId || !Number.isFinite(amount) || amount <= 0) {
+  if (
+    !userId ||
+    !orderId ||
+    !Number.isFinite(amount) ||
+    amount <= 0
+  ) {
     return false;
   }
 
@@ -398,7 +414,7 @@ async function reservePoints(userId, orderId, points, orderNumber) {
     });
 
     return true;
-  } catch (err) {
+  } catch (error) {
     await User.updateOne(
       { _id: userId },
       {
@@ -408,12 +424,14 @@ async function reservePoints(userId, orderId, points, orderNumber) {
       }
     );
 
-    throw err;
+    throw error;
   }
 }
 
 async function refundRedeemedPoints(order) {
-  const points = Math.floor(Number(order?.points_redeemed || 0));
+  const points = Math.floor(
+    Number(order?.points_redeemed || 0)
+  );
 
   if (
     !order?.user_id ||
@@ -449,7 +467,9 @@ async function refundRedeemedPoints(order) {
   );
 
   if (!user) {
-    throw new Error('Unable to refund reward points: customer not found.');
+    throw new Error(
+      'Unable to refund reward points: customer not found.'
+    );
   }
 
   await PointsLedger.create({
@@ -525,8 +545,14 @@ async function reverseCheckoutPoints(userId, order) {
   return true;
 }
 
+// =============================================================================
+// PROMOTION MANAGEMENT
+// =============================================================================
+
 async function consumePromoCode(code) {
-  if (!code) return false;
+  if (!code) {
+    return false;
+  }
 
   const normalizedCode = String(code).trim().toUpperCase();
 
@@ -567,7 +593,9 @@ async function consumePromoCode(code) {
 }
 
 async function reversePromoUsage(code) {
-  if (!code) return;
+  if (!code) {
+    return;
+  }
 
   await PromoCode.updateOne(
     {
@@ -582,25 +610,25 @@ async function reversePromoUsage(code) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Email
-// -----------------------------------------------------------------------------
+// =============================================================================
+// EMAIL
+// =============================================================================
 
 async function sendReceiptSafely(order) {
   try {
     await sendOrderReceipt(order);
-  } catch (err) {
+  } catch (error) {
     console.error(
       'Order receipt email failed:',
       order?._id,
-      err.message
+      error.message
     );
   }
 }
 
-// -----------------------------------------------------------------------------
-// Checkout validation
-// -----------------------------------------------------------------------------
+// =============================================================================
+// CHECKOUT VALIDATION
+// =============================================================================
 
 function validateCheckoutBody(body, authenticatedUser) {
   const {
@@ -624,7 +652,7 @@ function validateCheckoutBody(body, authenticatedUser) {
     return 'Customer name is required.';
   }
 
-  if (!normalizeString(customer_phone)) {
+  if (!normalizePhone(customer_phone)) {
     return 'Customer phone number is required.';
   }
 
@@ -690,8 +718,7 @@ function normalizeBasketItems(items) {
     const id = String(item.product_id);
     const quantity = Number(item.quantity);
 
-    const existing = grouped.get(id) || 0;
-    const combined = existing + quantity;
+    const combined = (grouped.get(id) || 0) + quantity;
 
     if (combined > MAX_QUANTITY_PER_ITEM) {
       throw new Error('The requested quantity is too large.');
@@ -700,21 +727,31 @@ function normalizeBasketItems(items) {
     grouped.set(id, combined);
   }
 
-  return Array.from(grouped.entries()).map(([product_id, quantity]) => ({
-    product_id,
-    quantity
-  }));
+  return Array.from(grouped.entries()).map(
+    ([product_id, quantity]) => ({
+      product_id,
+      quantity
+    })
+  );
 }
+
+// =============================================================================
+// CREATE ORDER
+// =============================================================================
 
 exports.create = async (req, res) => {
   let createdOrder = null;
   let pointsReserved = false;
   let promoConsumed = false;
+  let stockDeducted = false;
 
   const userId = getUserId(req);
 
   try {
-    const validationError = validateCheckoutBody(req.body, req.user);
+    const validationError = validateCheckoutBody(
+      req.body,
+      req.user
+    );
 
     if (validationError) {
       return res.status(400).json({
@@ -737,10 +774,10 @@ exports.create = async (req, res) => {
     const basket = normalizeBasketItems(items);
 
     const lineItems = [];
+
     let subtotal = 0;
     let productDiscount = 0;
 
-    // Fetch and validate products.
     for (const basketItem of basket) {
       const product = await Product.findOne({
         _id: basketItem.product_id,
@@ -793,7 +830,9 @@ exports.create = async (req, res) => {
         line_total: lineTotal,
         discount_percent:
           isSaleActive(product) && originalPrice > 0
-            ? Math.round((1 - unitPrice / originalPrice) * 100)
+            ? Math.round(
+                (1 - unitPrice / originalPrice) * 100
+              )
             : 0
       });
     }
@@ -801,7 +840,7 @@ exports.create = async (req, res) => {
     subtotal = normalizeMoney(subtotal);
     productDiscount = normalizeMoney(productDiscount);
 
-    // Validate promotional code.
+    // Promotion validation.
     let couponCode = null;
     let couponDiscount = 0;
 
@@ -812,12 +851,18 @@ exports.create = async (req, res) => {
         userId
       );
 
-      couponCode = String(promoResult.code).trim().toUpperCase();
-      couponDiscount = normalizeMoney(promoResult.discount_kes);
+      couponCode = String(promoResult.code)
+        .trim()
+        .toUpperCase();
 
-      if (couponDiscount > subtotal) {
-        couponDiscount = subtotal;
-      }
+      couponDiscount = normalizeMoney(
+        promoResult.discount_kes
+      );
+
+      couponDiscount = Math.min(
+        couponDiscount,
+        subtotal
+      );
     }
 
     const afterCoupon = Math.max(
@@ -825,7 +870,7 @@ exports.create = async (req, res) => {
       subtotal - couponDiscount
     );
 
-    // Validate and calculate points redemption.
+    // Reward point validation.
     let pointsRedeemed = Math.floor(
       Number(req.body.points_redeemed) || 0
     );
@@ -855,7 +900,10 @@ exports.create = async (req, res) => {
         });
       }
 
-      if (pointsRedeemed > Number(user.reward_points || 0)) {
+      if (
+        pointsRedeemed >
+        Number(user.reward_points || 0)
+      ) {
         return res.status(400).json({
           error: 'You do not have enough reward points.'
         });
@@ -865,12 +913,12 @@ exports.create = async (req, res) => {
         pointsToKes(pointsRedeemed)
       );
 
-      // Do not allow points to discount more than the payable subtotal.
       if (pointsValueKes > afterCoupon) {
         pointsValueKes = afterCoupon;
 
-        // Existing points conversion assumes 1 point = KES 0.5.
-        pointsRedeemed = Math.floor(pointsValueKes / 0.5);
+        pointsRedeemed = Math.floor(
+          pointsValueKes / 0.5
+        );
 
         if (pointsRedeemed < MIN_REDEEM_POINTS) {
           pointsRedeemed = 0;
@@ -879,6 +927,7 @@ exports.create = async (req, res) => {
       }
     }
 
+    // Final totals.
     const deliveryFee = getDeliveryFee(
       subtotal,
       fulfilment_type
@@ -893,21 +942,25 @@ exports.create = async (req, res) => {
 
     const pointsEarned = Math.max(
       0,
-      Math.floor(Number(pointsEarnedFromKes(afterCoupon)) || 0)
+      Math.floor(
+        Number(pointsEarnedFromKes(afterCoupon)) || 0
+      )
     );
 
-    // Create order.
     const order = await Order.create({
       order_number: generateOrderNumber(),
       user_id: userId || null,
 
       customer_name: normalizeString(customer_name),
       customer_phone: normalizePhone(customer_phone),
-      customer_email: normalizeString(customer_email) || null,
+      customer_email:
+        normalizeString(customer_email) || null,
 
       fulfilment_type,
+
       delivery_address:
         normalizeString(delivery_address) || null,
+
       delivery_notes:
         normalizeString(delivery_notes) || null,
 
@@ -915,7 +968,9 @@ exports.create = async (req, res) => {
       subtotal_kes: subtotal,
       total_kes: total,
 
-      discount_total_kes: productDiscount + couponDiscount,
+      discount_total_kes:
+        productDiscount + couponDiscount,
+
       coupon_code: couponCode,
       coupon_discount_kes: couponDiscount,
 
@@ -925,6 +980,7 @@ exports.create = async (req, res) => {
 
       payment_method,
       payment_status: 'pending',
+
       order_status:
         payment_method === 'cash_on_delivery'
           ? 'confirmed'
@@ -946,7 +1002,7 @@ exports.create = async (req, res) => {
 
     createdOrder = order;
 
-    // Reserve points only after the order exists.
+    // Reserve reward points.
     if (pointsRedeemed > 0 && userId) {
       await reservePoints(
         userId,
@@ -955,19 +1011,19 @@ exports.create = async (req, res) => {
         order.order_number
       );
 
-      // Set only after reservePoints has completed successfully.
       pointsReserved = true;
     }
 
-    // Consume promo usage.
+    // Consume promotion usage.
     if (couponCode) {
       await consumePromoCode(couponCode);
       promoConsumed = true;
     }
 
-    // COD orders reserve stock at checkout.
+    // COD stock reservation.
     if (payment_method === 'cash_on_delivery') {
       await deductStockForOrder(order);
+      stockDeducted = true;
     }
 
     return res.status(201).json({
@@ -975,18 +1031,21 @@ exports.create = async (req, res) => {
       points_earned: pointsEarned,
       points_redeemed: pointsRedeemed,
       coupon_discount_kes: couponDiscount,
+
       message:
         payment_method === 'cash_on_delivery'
           ? 'Order placed. Pay when your order is delivered or collected.'
           : 'Order created. Complete payment to confirm your order and earn reward points.'
     });
-  } catch (err) {
-    console.error('Create order error:', err);
+  } catch (error) {
+    console.error('Create order error:', error);
 
-    // Reverse points only if the reservation actually succeeded.
     if (pointsReserved && createdOrder && userId) {
       try {
-        await reverseCheckoutPoints(userId, createdOrder);
+        await reverseCheckoutPoints(
+          userId,
+          createdOrder
+        );
       } catch (rollbackError) {
         console.error(
           'Reward points rollback failed:',
@@ -995,10 +1054,14 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Reverse promo usage if it was consumed.
-    if (promoConsumed && createdOrder?.coupon_code) {
+    if (
+      promoConsumed &&
+      createdOrder?.coupon_code
+    ) {
       try {
-        await reversePromoUsage(createdOrder.coupon_code);
+        await reversePromoUsage(
+          createdOrder.coupon_code
+        );
       } catch (rollbackError) {
         console.error(
           'Promo usage rollback failed:',
@@ -1007,7 +1070,17 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Remove the incomplete order.
+    if (stockDeducted && createdOrder) {
+      try {
+        await restoreStockForOrder(createdOrder);
+      } catch (rollbackError) {
+        console.error(
+          'Stock rollback failed:',
+          rollbackError
+        );
+      }
+    }
+
     if (createdOrder?._id) {
       try {
         await Order.deleteOne({
@@ -1022,18 +1095,31 @@ exports.create = async (req, res) => {
     }
 
     return res.status(400).json({
-      error: getErrorMessage(err, 'Failed to create order.')
+      error: getErrorMessage(
+        error,
+        'Failed to create order.'
+      )
     });
   }
 };
 
+// =============================================================================
+// PUBLIC ORDER TRACKING
+// =============================================================================
+
 exports.getByNumber = async (req, res) => {
   try {
-    const orderNumber = normalizeString(req.params.orderNumber);
+    const orderNumber = normalizeString(
+      req.params.orderNumber
+    );
 
-    if (!orderNumber) {
+    const suppliedPhone = normalizePhone(
+      req.query.phone
+    );
+
+    if (!orderNumber || !suppliedPhone) {
       return res.status(400).json({
-        error: 'Order number is required.'
+        error: 'Order number and checkout phone number are required.'
       });
     }
 
@@ -1047,32 +1133,37 @@ exports.getByNumber = async (req, res) => {
       });
     }
 
-    if (req.query.phone) {
-      const storedPhone = normalizePhone(order.customer_phone);
-      const suppliedPhone = normalizePhone(req.query.phone);
+    const storedPhone = normalizePhone(
+      order.customer_phone
+    );
 
-      if (
-        !storedPhone ||
-        !suppliedPhone ||
-        storedPhone !== suppliedPhone
-      ) {
-        return res.status(403).json({
-          error: 'Phone does not match this order.'
-        });
-      }
+    if (
+      !storedPhone ||
+      storedPhone !== suppliedPhone
+    ) {
+      return res.status(403).json({
+        error: 'The order number or phone number is incorrect.'
+      });
     }
 
-    return res.json({
+    return res.status(200).json({
       order: serialize(order)
     });
-  } catch (err) {
-    console.error('Order tracking error:', err);
+  } catch (error) {
+    console.error(
+      'Order tracking error:',
+      error
+    );
 
     return res.status(500).json({
       error: 'Failed to load order.'
     });
   }
 };
+
+// =============================================================================
+// AUTHENTICATED CUSTOMER ORDER STATUS
+// =============================================================================
 
 exports.getCustomerStatus = async (req, res) => {
   try {
@@ -1107,8 +1198,11 @@ exports.getCustomerStatus = async (req, res) => {
     return res.json({
       order: serialize(order)
     });
-  } catch (err) {
-    console.error('Customer order status error:', err);
+  } catch (error) {
+    console.error(
+      'Customer order status error:',
+      error
+    );
 
     return res.status(500).json({
       error: 'Unable to check order status.'
@@ -1116,14 +1210,18 @@ exports.getCustomerStatus = async (req, res) => {
   }
 };
 
+// =============================================================================
+// CUSTOMER ORDER CANCELLATION
+// =============================================================================
+
 exports.cancelCustomerOrder = async (req, res) => {
   try {
     const orderId = req.params.id;
     const userId = getUserId(req);
 
-    if (!isValidObjectId(orderId)) {
+    if (!isValidObjectId(orderId) || !userId) {
       return res.status(400).json({
-        error: 'Invalid order ID.'
+        error: 'Invalid order request.'
       });
     }
 
@@ -1151,16 +1249,17 @@ exports.cancelCustomerOrder = async (req, res) => {
       });
     }
 
-    if (!['pending', 'confirmed'].includes(order.order_status)) {
+    if (
+      !['pending', 'confirmed'].includes(
+        order.order_status
+      )
+    ) {
       return res.status(400).json({
         error: 'This order can no longer be cancelled online. Please contact the bookshop.'
       });
     }
 
-    // Restore any stock already deducted.
     await restoreStockForOrder(order);
-
-    // Return any points redeemed at checkout.
     await refundRedeemedPoints(order);
 
     order.order_status = 'cancelled';
@@ -1171,8 +1270,11 @@ exports.cancelCustomerOrder = async (req, res) => {
       order: serialize(order),
       message: 'Your order has been cancelled. Redeemed points have been returned to your account.'
     });
-  } catch (err) {
-    console.error('Customer cancellation error:', err);
+  } catch (error) {
+    console.error(
+      'Customer cancellation error:',
+      error
+    );
 
     return res.status(500).json({
       error: 'Unable to cancel this order.'
@@ -1180,14 +1282,24 @@ exports.cancelCustomerOrder = async (req, res) => {
   }
 };
 
+// =============================================================================
+// ADMIN ORDER LISTING
+// =============================================================================
+
 exports.listAdmin = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req.query);
+    const { page, limit, skip } = getPagination(
+      req.query
+    );
 
     const filter = {};
 
     if (req.query.status) {
-      if (!ALLOWED_ORDER_STATUSES.includes(req.query.status)) {
+      if (
+        !ALLOWED_ORDER_STATUSES.includes(
+          req.query.status
+        )
+      ) {
         return res.status(400).json({
           error: 'Invalid order status filter.'
         });
@@ -1197,7 +1309,11 @@ exports.listAdmin = async (req, res) => {
     }
 
     if (req.query.payment_status) {
-      if (!ALLOWED_PAYMENT_STATUSES.includes(req.query.payment_status)) {
+      if (
+        !ALLOWED_PAYMENT_STATUSES.includes(
+          req.query.payment_status
+        )
+      ) {
         return res.status(400).json({
           error: 'Invalid payment status filter.'
         });
@@ -1213,9 +1329,15 @@ exports.listAdmin = async (req, res) => {
 
       if (search) {
         filter.$or = [
-          { order_number: new RegExp(search, 'i') },
-          { customer_name: new RegExp(search, 'i') },
-          { customer_phone: new RegExp(search, 'i') }
+          {
+            order_number: new RegExp(search, 'i')
+          },
+          {
+            customer_name: new RegExp(search, 'i')
+          },
+          {
+            customer_phone: new RegExp(search, 'i')
+          }
         ];
       }
     }
@@ -1234,6 +1356,7 @@ exports.listAdmin = async (req, res) => {
 
     return res.json({
       orders: serializeMany(orders),
+
       pagination: {
         page,
         limit,
@@ -1241,14 +1364,21 @@ exports.listAdmin = async (req, res) => {
         pages: Math.ceil(total / limit) || 1
       }
     });
-  } catch (err) {
-    console.error('Admin order listing error:', err);
+  } catch (error) {
+    console.error(
+      'Admin order listing error:',
+      error
+    );
 
     return res.status(500).json({
       error: 'Failed to list orders.'
     });
   }
 };
+
+// =============================================================================
+// ADMIN ORDER DETAILS
+// =============================================================================
 
 exports.getAdmin = async (req, res) => {
   try {
@@ -1258,7 +1388,9 @@ exports.getAdmin = async (req, res) => {
       });
     }
 
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(
+      req.params.id
+    );
 
     if (!order) {
       return res.status(404).json({
@@ -1269,14 +1401,21 @@ exports.getAdmin = async (req, res) => {
     return res.json({
       order: serialize(order)
     });
-  } catch (err) {
-    console.error('Admin order details error:', err);
+  } catch (error) {
+    console.error(
+      'Admin order details error:',
+      error
+    );
 
     return res.status(500).json({
       error: 'Failed to load order.'
     });
   }
 };
+
+// =============================================================================
+// ADMIN ORDER STATUS UPDATE
+// =============================================================================
 
 exports.updateStatus = async (req, res) => {
   try {
@@ -1324,15 +1463,12 @@ exports.updateStatus = async (req, res) => {
       payment_status === 'paid' &&
       order.payment_status !== 'paid'
     ) {
-      await exports.markPaid(order._id);
-      order = await Order.findById(order._id);
+      return res.status(400).json({
+        error: 'Use the verified payment workflow to mark an order as paid.'
+      });
+    }
 
-      if (!order || order.payment_status !== 'paid') {
-        return res.status(400).json({
-          error: 'Unable to mark order as paid.'
-        });
-      }
-    } else if (
+    if (
       payment_status &&
       payment_status !== 'paid'
     ) {
@@ -1366,14 +1502,24 @@ exports.updateStatus = async (req, res) => {
     return res.json({
       order: serialize(order)
     });
-  } catch (err) {
-    console.error('Admin order update error:', err);
+  } catch (error) {
+    console.error(
+      'Admin order update error:',
+      error
+    );
 
     return res.status(500).json({
-      error: getErrorMessage(err, 'Failed to update order.')
+      error: getErrorMessage(
+        error,
+        'Failed to update order.'
+      )
     });
   }
 };
+
+// =============================================================================
+// MARK ORDER AS PAID
+// =============================================================================
 
 exports.markPaid = async (orderId, paymentMeta = {}) => {
   if (!isValidObjectId(orderId)) {
@@ -1386,16 +1532,16 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
     return null;
   }
 
-  // Idempotency guard for ordinary repeated payment callbacks.
   if (order.payment_status === 'paid') {
     return serialize(order);
   }
 
   if (isOrderCancelled(order)) {
-    throw new Error('Cancelled orders cannot be marked paid.');
+    throw new Error(
+      'Cancelled orders cannot be marked paid.'
+    );
   }
 
-  // Save payment references only when supplied by a trusted caller.
   if (paymentMeta.mpesa_receipt) {
     order.mpesa_receipt = paymentMeta.mpesa_receipt;
   }
@@ -1408,8 +1554,6 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
     order.payment_reference = paymentMeta.payment_reference;
   }
 
-  // Deduct stock before saving paid status. If stock deduction fails,
-  // the order remains unpaid and can be investigated or retried.
   if (order.payment_method !== 'cash_on_delivery') {
     await deductStockForOrder(order);
   }
@@ -1422,8 +1566,10 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
 
   await order.save();
 
-  // Award points only after successful payment.
-  if (order.user_id && Number(order.points_earned) > 0) {
+  if (
+    order.user_id &&
+    Number(order.points_earned) > 0
+  ) {
     await awardPoints(
       order.user_id,
       order,
@@ -1431,15 +1577,14 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
     );
   }
 
-  // Receipt failure must not reverse a successful payment.
   await sendReceiptSafely(order);
 
   return serialize(order);
 };
 
-// -----------------------------------------------------------------------------
-// Exports for other controllers
-// -----------------------------------------------------------------------------
+// =============================================================================
+// EXPORTED HELPERS
+// =============================================================================
 
 exports.awardPoints = awardPoints;
 exports.deductStockForOrder = deductStockForOrder;
