@@ -1,28 +1,4 @@
-
 'use strict';
-
-/**
- * =============================================================================
- * MAWEGO BOOKSHOP - ORDER RECEIPT EMAIL SERVICE
- * =============================================================================
- *
- * Responsibilities:
- * - Verify that an order has confirmed payment
- * - Validate the customer's email address
- * - Prevent duplicate receipt deliveries
- * - Prevent simultaneous receipt processing
- * - Generate receipt PDFs
- * - Send receipts through Brevo
- * - Track receipt email delivery attempts
- * - Record successful and failed deliveries
- * - Support intentional receipt resending
- *
- * IMPORTANT:
- * A successful Brevo response means the email was accepted by Brevo.
- * It does not guarantee that the email reached the customer's inbox.
- *
- * =============================================================================
- */
 
 const mongoose = require('mongoose');
 
@@ -109,6 +85,12 @@ function isDuplicateKeyError(error) {
   return error?.code === 11000;
 }
 
+function toError(error) {
+  return error instanceof Error
+    ? error
+    : new Error(normalizeError(error));
+}
+
 /* -------------------------------------------------------------------------- */
 /* Receipt Log Creation                                                       */
 /* -------------------------------------------------------------------------- */
@@ -116,22 +98,10 @@ function isDuplicateKeyError(error) {
 /**
  * Creates a pending receipt log.
  *
- * The unique partial index on:
- *
- * { order_id: 1 }
- *
- * with:
- *
- * { status: "pending" }
- *
- * is responsible for preventing concurrent pending receipts.
- *
- * Make sure that index exists in MongoDB.
+ * A unique partial MongoDB index on order_id where status is "pending"
+ * is required to prevent simultaneous receipt processing.
  */
-async function createPendingLog({
-  orderId,
-  email
-}) {
+async function createPendingLog({ orderId, email }) {
   try {
     return await ReceiptEmailLog.create({
       order_id: orderId,
@@ -150,14 +120,9 @@ async function createPendingLog({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mark Receipt as Sent                                                       */
+/* Mark Receipt as Sent                                                      */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Only changes a log that is still pending.
- *
- * This prevents an already completed log from being overwritten.
- */
 async function markReceiptSent(logId, result) {
   const messageId = result?.messageId || null;
 
@@ -190,15 +155,9 @@ async function markReceiptSent(logId, result) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mark Receipt as Failed                                                     */
+/* Mark Receipt as Failed                                                    */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Marks a pending receipt log as failed.
- *
- * This function is not used when Brevo has already accepted
- * the email, because marking it failed could cause an unsafe retry.
- */
 async function markReceiptFailed(logId, error) {
   return ReceiptEmailLog.findOneAndUpdate(
     {
@@ -219,7 +178,7 @@ async function markReceiptFailed(logId, error) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Send Order Receipt                                                         */
+/* Send Order Receipt                                                        */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -260,7 +219,7 @@ async function sendOrderReceipt(order, options = {}) {
     throw new Error('Order not found.');
   }
 
-  if (mongoose.isValidObjectId(order._id) === false) {
+  if (!mongoose.isValidObjectId(order._id)) {
     throw new Error('Invalid order ID.');
   }
 
@@ -349,8 +308,8 @@ async function sendOrderReceipt(order, options = {}) {
       );
     }
 
-    // From this point onward, do not mark the log as failed:
-    // Brevo may already have accepted the email.
+    // Brevo has accepted the email.
+    // Do not mark this attempt as failed if subsequent logging fails.
     deliveryAccepted = true;
 
     const updatedLog = await markReceiptSent(
@@ -365,10 +324,12 @@ async function sendOrderReceipt(order, options = {}) {
       messageId: result.messageId || null,
       logId: updatedLog._id
     };
-  } catch (error) {
+  } catch (originalError) {
+    const error = toError(originalError);
+
     if (deliveryAccepted) {
-      // Do not mark this as failed or automatically retry.
-      // The email may already have been accepted by Brevo.
+      // Brevo may already have accepted the email.
+      // Do not automatically retry this delivery.
       error.code = 'RECEIPT_DELIVERY_STATUS_UNCONFIRMED';
       error.receiptLogId = log._id;
 
@@ -378,8 +339,7 @@ async function sendOrderReceipt(order, options = {}) {
     try {
       await markReceiptFailed(log._id, error);
     } catch (logError) {
-      // Preserve the original delivery error while attaching
-      // the logging error for server-side investigation.
+      // Preserve the original delivery error.
       error.logUpdateError = normalizeError(logError);
       error.receiptLogId = log._id;
     }

@@ -32,6 +32,13 @@ const UPLOADS_PATH = path.join(__dirname, 'uploads');
 
 const SHUTDOWN_TIMEOUT = 10000;
 
+// Render runs the application behind a reverse proxy.
+// Default to one trusted proxy hop on Render/production.
+const TRUST_PROXY_HOPS =
+  process.env.TRUST_PROXY_HOPS !== undefined
+    ? Number(process.env.TRUST_PROXY_HOPS)
+    : (IS_PRODUCTION || process.env.RENDER === 'true' ? 1 : 0);
+
 // ============================================================
 // ENVIRONMENT VALIDATION
 // ============================================================
@@ -44,7 +51,9 @@ function validateEnvironment() {
 
   for (const variable of requiredVariables) {
     if (!process.env[variable]) {
-      throw new Error(`${variable} environment variable is required.`);
+      throw new Error(
+        `${variable} environment variable is required.`
+      );
     }
   }
 
@@ -75,13 +84,29 @@ function validateEnvironment() {
   }
 
   if (
+    !Number.isInteger(TRUST_PROXY_HOPS) ||
+    TRUST_PROXY_HOPS < 0 ||
+    TRUST_PROXY_HOPS > 10
+  ) {
+    throw new Error(
+      'TRUST_PROXY_HOPS must be an integer between 0 and 10.'
+    );
+  }
+
+  if (
     process.env.CORS_ORIGIN &&
     typeof process.env.CORS_ORIGIN !== 'string'
   ) {
-    throw new Error('CORS_ORIGIN must be a comma-separated string.');
+    throw new Error(
+      'CORS_ORIGIN must be a comma-separated string.'
+    );
   }
 
-  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  if (
+    !Number.isInteger(PORT) ||
+    PORT < 1 ||
+    PORT > 65535
+  ) {
     throw new Error('Invalid server PORT configuration.');
   }
 }
@@ -92,10 +117,14 @@ function validateEnvironment() {
 
 app.disable('x-powered-by');
 
-// Set this according to your actual reverse-proxy topology.
+// IMPORTANT:
+// Render forwards the original client IP using X-Forwarded-For.
+// Trust only the configured number of proxy hops.
 app.set(
   'trust proxy',
-  IS_PRODUCTION ? 1 : false
+  TRUST_PROXY_HOPS > 0
+    ? TRUST_PROXY_HOPS
+    : false
 );
 
 app.use((req, res, next) => {
@@ -194,8 +223,15 @@ const authenticationLimiter = rateLimit({
 
 app.use('/api/', generalLimiter);
 
-app.use('/api/auth/login', authenticationLimiter);
-app.use('/api/auth/register', authenticationLimiter);
+app.use(
+  '/api/auth/login',
+  authenticationLimiter
+);
+
+app.use(
+  '/api/auth/register',
+  authenticationLimiter
+);
 
 // ============================================================
 // UPLOAD DIRECTORY
@@ -231,7 +267,9 @@ app.get('/api/health', (req, res) => {
     status,
     service: 'mawego-bookshop',
     environment: NODE_ENV,
-    database: databaseConnected ? 'connected' : 'disconnected',
+    database: databaseConnected
+      ? 'connected'
+      : 'disconnected',
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString()
   });
@@ -262,13 +300,13 @@ app.get('/api/settings', async (req, res, next) => {
       settings[row.key] = row.value;
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       settings
     });
 
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
@@ -288,7 +326,7 @@ app.use(express.static(FRONTEND_PATH, {
 // ============================================================
 
 app.use('/api', (req, res) => {
-  res.status(404).json({
+  return res.status(404).json({
     success: false,
     error: 'API endpoint not found'
   });
@@ -299,16 +337,24 @@ app.use('/api', (req, res) => {
 // ============================================================
 
 app.get('*', (req, res, next) => {
+  let decodedPath;
+
+  try {
+    decodedPath = decodeURIComponent(req.path);
+  } catch (error) {
+    return res.status(400).send('Invalid URL');
+  }
+
   if (
-    req.path.startsWith('/uploads/') ||
-    req.path === '/uploads'
+    decodedPath.startsWith('/uploads/') ||
+    decodedPath === '/uploads'
   ) {
     return res.status(404).send('Not found');
   }
 
   const requestedPath = path.resolve(
     FRONTEND_PATH,
-    `.${decodeURIComponent(req.path)}`
+    `.${decodedPath}`
   );
 
   // Prevent access outside the frontend directory.
@@ -319,20 +365,20 @@ app.get('*', (req, res, next) => {
     return res.status(403).send('Forbidden');
   }
 
-  const filePath = req.path === '/'
+  const filePath = decodedPath === '/'
     ? path.join(FRONTEND_PATH, 'index.html')
     : requestedPath;
 
   res.sendFile(filePath, error => {
-    if (!error) return;
+    if (!error) {
+      return;
+    }
 
     res.sendFile(
       path.join(FRONTEND_PATH, 'pages', '404.html'),
       fallbackError => {
-        if (fallbackError) {
-          if (!res.headersSent) {
-            res.status(404).send('Page not found');
-          }
+        if (fallbackError && !res.headersSent) {
+          res.status(404).send('Page not found');
         }
       }
     );
@@ -377,7 +423,9 @@ app.use((error, req, res, next) => {
 
   // Upload and file validation errors.
   if (
-    /multer|file type|file size|image upload/i.test(error.message)
+    /multer|file type|file size|image upload/i.test(
+      error.message
+    )
   ) {
     return res.status(400).json({
       success: false,
@@ -387,10 +435,12 @@ app.use((error, req, res, next) => {
     });
   }
 
-  res.status(error.status >= 400 && error.status < 500
-    ? error.status
-    : 500
-  ).json({
+  const statusCode =
+    error.status >= 400 && error.status < 500
+      ? error.status
+      : 500;
+
+  return res.status(statusCode).json({
     success: false,
     error: IS_PRODUCTION
       ? 'Something went wrong. Please try again.'
@@ -403,7 +453,9 @@ app.use((error, req, res, next) => {
 // ============================================================
 
 async function initializeDatabase() {
-  console.log('[DATABASE] Initializing Mawego Bookshop...');
+  console.log(
+    '[DATABASE] Initializing Mawego Bookshop...'
+  );
 
   const { init } = require('./utils/initDb');
 
@@ -411,7 +463,9 @@ async function initializeDatabase() {
     await init();
   }
 
-  console.log('[DATABASE] Initialization completed.');
+  console.log(
+    '[DATABASE] Initialization completed.'
+  );
 }
 
 // ============================================================
@@ -422,7 +476,9 @@ let server = null;
 let shuttingDown = false;
 
 async function shutdown(signal) {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    return;
+  }
 
   shuttingDown = true;
 
@@ -430,7 +486,10 @@ async function shutdown(signal) {
   console.log('[SERVER] Starting graceful shutdown...');
 
   const forceExit = setTimeout(() => {
-    console.error('[SERVER] Shutdown timeout exceeded.');
+    console.error(
+      '[SERVER] Shutdown timeout exceeded.'
+    );
+
     process.exit(1);
   }, SHUTDOWN_TIMEOUT);
 
@@ -442,7 +501,7 @@ async function shutdown(signal) {
             return reject(error);
           }
 
-          resolve();
+          return resolve();
         });
       });
     }
@@ -452,12 +511,19 @@ async function shutdown(signal) {
     clearTimeout(forceExit);
 
     console.log('[DATABASE] MongoDB disconnected.');
-    console.log('[SERVER] Shutdown completed successfully.');
+    console.log(
+      '[SERVER] Shutdown completed successfully.'
+    );
 
     process.exit(0);
 
   } catch (error) {
-    console.error('[SERVER] Shutdown failed:', error.message);
+    clearTimeout(forceExit);
+
+    console.error(
+      '[SERVER] Shutdown failed:',
+      error.message
+    );
 
     process.exit(1);
   }
@@ -474,17 +540,27 @@ async function start() {
     console.log('       MAWEGO BOOKSHOP ONLINE');
     console.log('========================================');
 
-    console.log('[STARTUP] Validating configuration...');
+    console.log(
+      '[STARTUP] Validating configuration...'
+    );
 
     validateEnvironment();
 
     initializeDirectories();
 
-    console.log('[STARTUP] Connecting to MongoDB...');
+    console.log(
+      `[SECURITY] Trusted proxy hops: ${TRUST_PROXY_HOPS}`
+    );
+
+    console.log(
+      '[STARTUP] Connecting to MongoDB...'
+    );
 
     await connectMongo();
 
-    console.log('[DATABASE] Connected successfully.');
+    console.log(
+      '[DATABASE] Connected successfully.'
+    );
 
     await initializeDatabase();
 
@@ -497,6 +573,7 @@ async function start() {
       console.log(`Port        : ${PORT}`);
       console.log(`Frontend    : ${FRONTEND_PATH}`);
       console.log(`Uploads     : ${UPLOADS_PATH}`);
+      console.log(`Proxy hops  : ${TRUST_PROXY_HOPS}`);
       console.log('Database    : Connected');
       console.log('API         : Active');
       console.log('Status      : RUNNING');
@@ -505,12 +582,21 @@ async function start() {
     });
 
     server.on('error', error => {
-      console.error('[HTTP SERVER ERROR]', error.message);
+      console.error(
+        '[HTTP SERVER ERROR]',
+        error.message
+      );
+
       process.exitCode = 1;
     });
 
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => {
+      shutdown('SIGTERM');
+    });
+
+    process.on('SIGINT', () => {
+      shutdown('SIGINT');
+    });
 
   } catch (error) {
     console.error('');

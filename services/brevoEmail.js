@@ -3,18 +3,20 @@
 
 const brevo = require('@getbrevo/brevo');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// CONFIGURATION
+// ============================================================
 
-const DEFAULT_FRONTEND_URL = 'https://mawegobookshop.vercel.app';
+const DEFAULT_FRONTEND_URL =
+  'https://mawegobookshop.vercel.app';
+
 const DEFAULT_SENDER_NAME = 'Mawego Bookshop';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/* -------------------------------------------------------------------------- */
-/* HTML Utilities                                                             */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// HTML UTILITIES
+// ============================================================
 
 function escapeHtml(value) {
   const entities = {
@@ -30,9 +32,9 @@ function escapeHtml(value) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Validation                                                                 */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// VALIDATION
+// ============================================================
 
 function validateEmail(email) {
   return (
@@ -57,14 +59,16 @@ function requireString(value, fieldName) {
   return value.trim();
 }
 
-/* -------------------------------------------------------------------------- */
-/* Frontend URL                                                               */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// FRONTEND URL
+// ============================================================
 
 function getFrontendUrl() {
   const frontendUrl = String(
     process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL
-  ).trim().replace(/\/+$/, '');
+  )
+    .trim()
+    .replace(/\/+$/, '');
 
   let parsedUrl;
 
@@ -78,16 +82,21 @@ function getFrontendUrl() {
     throw new Error('FRONTEND_URL must use HTTP or HTTPS.');
   }
 
-  if (process.env.NODE_ENV === 'production' && parsedUrl.protocol !== 'https:') {
-    throw new Error('FRONTEND_URL must use HTTPS in production.');
+  if (
+    process.env.NODE_ENV === 'production' &&
+    parsedUrl.protocol !== 'https:'
+  ) {
+    throw new Error(
+      'FRONTEND_URL must use HTTPS in production.'
+    );
   }
 
   return frontendUrl;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Brevo Configuration                                                        */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// SENDER CONFIGURATION
+// ============================================================
 
 function getSender() {
   const email = requireEmail(
@@ -105,28 +114,68 @@ function getSender() {
   };
 }
 
-function getBrevoApi() {
+// ============================================================
+// BREVO CLIENT
+// Supports newer SDK (BrevoClient) and older SDK versions.
+// ============================================================
+
+function createBrevoClient() {
   const apiKey = String(
     process.env.BREVO_API_KEY || ''
   ).trim();
 
   if (!apiKey) {
-    throw new Error('BREVO_API_KEY is not configured.');
+    throw new Error(
+      'BREVO_API_KEY is not configured.'
+    );
   }
 
-  const api = new brevo.TransactionalEmailsApi();
+  // New SDK API: @getbrevo/brevo v4+ / v5 / v6
+  if (typeof brevo.BrevoClient === 'function') {
+    return {
+      version: 'modern',
+      client: new brevo.BrevoClient({
+        apiKey,
+        timeoutInSeconds: 30,
+        maxRetries: 2
+      })
+    };
+  }
 
-  api.setApiKey(
-    brevo.TransactionalEmailsApiApiKeys.apiKey,
-    apiKey
+  // Older SDK API.
+  if (
+    typeof brevo.TransactionalEmailsApi === 'function'
+  ) {
+    const client = new brevo.TransactionalEmailsApi();
+
+    if (
+      typeof client.setApiKey === 'function' &&
+      brevo.TransactionalEmailsApiApiKeys
+    ) {
+      client.setApiKey(
+        brevo.TransactionalEmailsApiApiKeys.apiKey,
+        apiKey
+      );
+    } else {
+      throw new Error(
+        'Installed Brevo SDK does not expose the expected API-key configuration.'
+      );
+    }
+
+    return {
+      version: 'legacy',
+      client
+    };
+  }
+
+  throw new Error(
+    'Unsupported @getbrevo/brevo installation. Check the installed SDK version.'
   );
-
-  return api;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Brevo Response                                                             */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// MESSAGE ID
+// ============================================================
 
 function getMessageId(response) {
   return (
@@ -137,40 +186,43 @@ function getMessageId(response) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Core Email Sender                                                          */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// SEND TRANSACTIONAL EMAIL
+// ============================================================
 
-/**
- * Supports both interfaces:
- *
- * New:
- * {
- *   email,
- *   name,
- *   subject,
- *   html,
- *   text,
- *   attachment
- * }
- *
- * Legacy:
- * {
- *   to,
- *   subject,
- *   htmlContent,
- *   textContent,
- *   attachment
- * }
- *
- * Attachment format:
- * [
- *   {
- *     name: 'receipt.pdf',
- *     content: 'BASE64_CONTENT'
- *   }
- * ]
- */
+async function deliverEmail(message) {
+  const { version, client } = createBrevoClient();
+
+  let response;
+
+  if (version === 'modern') {
+    response = await client.transactionalEmails.sendTransacEmail(
+      message
+    );
+  } else {
+    // Older SDKs may expose SendSmtpEmail as a constructor.
+    // If not, the API accepts a plain message object.
+    const legacyMessage =
+      typeof brevo.SendSmtpEmail === 'function'
+        ? Object.assign(new brevo.SendSmtpEmail(), message)
+        : message;
+
+    response = await client.sendTransacEmail(
+      legacyMessage
+    );
+  }
+
+  return {
+    success: true,
+    messageId: getMessageId(response),
+    response
+  };
+}
+
+// ============================================================
+// CORE EMAIL SENDER
+// ============================================================
+
 async function sendEmail(options = {}) {
   const {
     email,
@@ -189,7 +241,9 @@ async function sendEmail(options = {}) {
     'Recipient email'
   );
 
-  const recipientName = String(name || 'Customer').trim();
+  const recipientName = String(
+    name || 'Customer'
+  ).trim();
 
   const emailSubject = requireString(
     subject,
@@ -203,31 +257,41 @@ async function sendEmail(options = {}) {
 
   const finalText = text ?? textContent;
 
-  const message = new brevo.SendSmtpEmail();
+  const message = {
+    sender: getSender(),
 
-  message.sender = getSender();
+    to: [
+      {
+        email: recipientEmail,
+        name: recipientName
+      }
+    ],
 
-  message.to = [
-    {
-      email: recipientEmail,
-      name: recipientName
-    }
-  ];
+    subject: emailSubject,
+    htmlContent: finalHtml
+  };
 
-  message.subject = emailSubject;
-  message.htmlContent = finalHtml;
-
-  if (finalText !== undefined && finalText !== null && String(finalText).trim()) {
+  if (
+    finalText !== undefined &&
+    finalText !== null &&
+    String(finalText).trim()
+  ) {
     message.textContent = String(finalText);
   }
+
+  // ==========================================================
+  // ATTACHMENTS
+  // ==========================================================
 
   if (attachment !== null) {
     const attachments = Array.isArray(attachment)
       ? attachment
       : [attachment];
 
-    if (attachments.length === 0) {
-      throw new Error('Email attachment cannot be empty.');
+    if (!attachments.length) {
+      throw new Error(
+        'Email attachment cannot be empty.'
+      );
     }
 
     message.attachment = attachments.map(file => {
@@ -238,7 +302,9 @@ async function sendEmail(options = {}) {
         typeof file.content !== 'string' ||
         !file.content.trim()
       ) {
-        throw new Error('Email attachment is invalid.');
+        throw new Error(
+          'Email attachment is invalid.'
+        );
       }
 
       return {
@@ -248,18 +314,12 @@ async function sendEmail(options = {}) {
     });
   }
 
-  const response = await getBrevoApi().sendTransacEmail(message);
-
-  return {
-    success: true,
-    messageId: getMessageId(response),
-    response
-  };
+  return deliverEmail(message);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Welcome Email                                                              */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// WELCOME EMAIL
+// ============================================================
 
 async function sendWelcomeEmail({
   email,
@@ -297,10 +357,8 @@ async function sendWelcomeEmail({
             </p>
 
             <p style="text-align:center;margin:30px 0">
-              <a
-                href="${safeFrontendUrl}"
-                style="display:inline-block;background:#183b32;color:white;padding:13px 25px;text-decoration:none;border-radius:5px;font-weight:bold"
-              >
+              <a href="${safeFrontendUrl}"
+                style="display:inline-block;background:#183b32;color:white;padding:13px 25px;text-decoration:none;border-radius:5px;font-weight:bold">
                 Start Shopping
               </a>
             </p>
@@ -321,9 +379,9 @@ async function sendWelcomeEmail({
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Password Reset Email                                                       */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// PASSWORD RESET EMAIL
+// ============================================================
 
 async function sendPasswordResetEmail({
   email,
@@ -370,10 +428,8 @@ async function sendPasswordResetEmail({
             </p>
 
             <p style="text-align:center;margin:30px 0">
-              <a
-                href="${safeResetUrl}"
-                style="display:inline-block;background:#183b32;color:white;padding:14px 25px;text-decoration:none;border-radius:5px;font-weight:bold"
-              >
+              <a href="${safeResetUrl}"
+                style="display:inline-block;background:#183b32;color:white;padding:14px 25px;text-decoration:none;border-radius:5px;font-weight:bold">
                 Reset My Password
               </a>
             </p>
@@ -406,9 +462,9 @@ async function sendPasswordResetEmail({
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Receipt Email                                                              */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// ORDER RECEIPT EMAIL
+// ============================================================
 
 async function sendReceiptEmail({
   email,
@@ -418,8 +474,13 @@ async function sendReceiptEmail({
 }) {
   requireEmail(email, 'Customer email');
 
-  if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
-    throw new Error('A valid PDF receipt buffer is required.');
+  if (
+    !Buffer.isBuffer(pdfBuffer) ||
+    pdfBuffer.length === 0
+  ) {
+    throw new Error(
+      'A valid PDF receipt buffer is required.'
+    );
   }
 
   const name = String(
@@ -432,7 +493,9 @@ async function sendReceiptEmail({
     orderNumber || 'N/A'
   );
 
-  const safeOrderNumber = escapeHtml(displayOrderNumber);
+  const safeOrderNumber = escapeHtml(
+    displayOrderNumber
+  );
 
   const cleanOrderNumber = displayOrderNumber.replace(
     /[^a-zA-Z0-9_-]/g,
@@ -487,9 +550,9 @@ async function sendReceiptEmail({
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Module Exports                                                             */
-/* -------------------------------------------------------------------------- */
+// ============================================================
+// EXPORTS
+// ============================================================
 
 module.exports = {
   sendEmail,

@@ -20,35 +20,51 @@ const {
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 128;
 const BCRYPT_ROUNDS = 12;
-const RESET_TOKEN_EXPIRY = 30 * 60 * 1000;
+const RESET_TOKEN_BYTES = 32;
+const RESET_TOKEN_EXPIRY_MS = 30 * 60 * 1000;
 const MAX_CUSTOMER_ORDERS = 50;
+const MAX_NAME_LENGTH = 120;
 
 const STAFF_ROLES = ['staff', 'manager', 'owner'];
 const MANAGER_CREATABLE_ROLES = ['staff'];
 const OWNER_CREATABLE_ROLES = ['staff', 'manager', 'owner'];
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
+const RESET_TOKEN_REGEX = /^[a-f\d]{64}$/i;
 
 // ============================================================
 // SHARED HELPERS
 // ============================================================
 
 function normalizeEmail(email) {
-  return email.trim().toLowerCase();
+  return typeof email === 'string'
+    ? email.trim().toLowerCase()
+    : '';
 }
 
 function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return (
+    typeof email === 'string' &&
+    email.length <= 254 &&
+    EMAIL_REGEX.test(email)
+  );
 }
 
 function isValidObjectId(id) {
-  return /^[a-f\d]{24}$/i.test(String(id || ''));
+  return OBJECT_ID_REGEX.test(String(id || ''));
 }
 
-function isValidPassword(password, minLength = PASSWORD_MIN_LENGTH) {
+function isValidPassword(password) {
   return (
     typeof password === 'string' &&
-    password.length >= minLength &&
+    password.length >= PASSWORD_MIN_LENGTH &&
     password.length <= PASSWORD_MAX_LENGTH
   );
+}
+
+function normalizeName(name) {
+  return typeof name === 'string' ? name.trim() : '';
 }
 
 function safeUser(user, includeStatus = false) {
@@ -63,24 +79,48 @@ function safeUser(user, includeStatus = false) {
 
   if (includeStatus) {
     result.is_active = Boolean(user.is_active);
-    result.created_at = user.created_at;
+    result.created_at = user.created_at || null;
   }
 
   return result;
 }
 
 function sendError(res, status, message) {
-  return res.status(status).json({
-    error: message
+  return res.status(status).json({ error: message });
+}
+
+function isDuplicateError(error) {
+  return error?.code === 11000;
+}
+
+function logError(context, error) {
+  console.error(`[${context}]`, {
+    message: error?.message || String(error),
+    status: error?.response?.status,
+    response: error?.response?.body || error?.response?.text
   });
 }
 
-function handleDuplicateError(error) {
-  return error && error.code === 11000;
+async function hashPassword(password) {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+async function verifyPassword(password, passwordHash) {
+  if (
+    typeof password !== 'string' ||
+    typeof passwordHash !== 'string' ||
+    !passwordHash
+  ) {
+    return false;
+  }
+
+  return bcrypt.compare(password, passwordHash);
 }
 
 function canManageStaff(actor, target) {
-  if (!actor || !target) return false;
+  if (!actor || !target) {
+    return false;
+  }
 
   if (actor.role === 'owner') {
     return true;
@@ -93,18 +133,24 @@ function canManageStaff(actor, target) {
   return false;
 }
 
-function logError(context, error) {
-  console.error(`[${context}]`, error.message || error);
+function hashResetToken(token) {
+  return crypto
+    .createHash('sha256')
+    .update(token)
+    .digest('hex');
 }
 
-async function hashPassword(password) {
-  return bcrypt.hash(password, BCRYPT_ROUNDS);
+function genericResetResponse(res) {
+  return res.status(200).json({
+    message:
+      'If an account exists with that email, password reset instructions will be sent shortly.'
+  });
 }
 
-async function verifyPassword(password, passwordHash) {
-  if (!passwordHash) return false;
-
-  return bcrypt.compare(password, passwordHash);
+function getActor(req) {
+  return req.user && req.user.id
+    ? req.user
+    : null;
 }
 
 // ============================================================
@@ -120,30 +166,18 @@ exports.register = async (req, res) => {
       phone
     } = req.body || {};
 
-    if (
-      typeof email !== 'string' ||
-      typeof password !== 'string' ||
-      typeof full_name !== 'string'
-    ) {
-      return sendError(
-        res,
-        400,
-        'Email, password and full name are required'
-      );
-    }
-
     const normalizedEmail = normalizeEmail(email);
-    const normalizedName = full_name.trim();
+    const normalizedName = normalizeName(full_name);
 
     if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
       return sendError(res, 400, 'Please provide a valid email address');
     }
 
-    if (!normalizedName || normalizedName.length > 120) {
+    if (!normalizedName || normalizedName.length > MAX_NAME_LENGTH) {
       return sendError(res, 400, 'Please provide a valid full name');
     }
 
-    if (!isValidPassword(password, 8)) {
+    if (!isValidPassword(password)) {
       return sendError(
         res,
         400,
@@ -173,44 +207,53 @@ exports.register = async (req, res) => {
       email: normalizedEmail,
       password_hash: passwordHash,
       full_name: normalizedName,
-      phone: phone ? phone.trim() : null,
+      phone: typeof phone === 'string' ? phone.trim() : null,
       role: 'customer',
       reward_points: 0,
       is_active: true
     });
 
-    // Send welcome email without delaying registration.
-    Promise.resolve()
-      .then(() => sendWelcomeEmail({
+    // Generate the token after the user has been saved.
+    const token = signToken(user);
+
+    // Attempt the welcome email without making registration
+    // dependent on the email provider being available.
+    try {
+      await sendWelcomeEmail({
         email: user.email,
         customerName: user.full_name
-      }))
-      .then(() => User.updateOne(
+      });
+
+      await User.updateOne(
         { _id: user._id },
         {
           $set: {
             welcome_email_sent_at: new Date()
           }
         }
-      ))
-      .catch(error => {
-        logError('Welcome email failed', error);
-      });
+      );
+    } catch (emailError) {
+      logError('Welcome email delivery failed', emailError);
+    }
 
     return res.status(201).json({
       message: 'Account created successfully',
       user: safeUser(user),
-      token: signToken(user)
+      token
     });
 
   } catch (error) {
     logError('Customer registration failed', error);
 
-    if (handleDuplicateError(error)) {
+    if (isDuplicateError(error)) {
       return sendError(res, 409, 'Email already registered');
     }
 
-    return sendError(res, 500, 'Registration failed. Please try again.');
+    return sendError(
+      res,
+      500,
+      'Registration failed. Please try again.'
+    );
   }
 };
 
@@ -222,29 +265,24 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body || {};
 
-    if (
-      typeof email !== 'string' ||
-      typeof password !== 'string' ||
-      !email.trim() ||
-      !password
-    ) {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || typeof password !== 'string' || !password) {
       return sendError(res, 400, 'Email and password are required');
     }
 
-    const normalizedEmail = normalizeEmail(email);
-
     if (!isValidEmail(normalizedEmail)) {
-      return sendError(res, 401, 'Invalid credentials');
+      return sendError(res, 401, 'Invalid email or password');
     }
 
-    // Explicitly retrieve password_hash because the User schema
-    // defines it with select: false.
+    // Explicitly select password_hash for compatibility with schemas
+    // where password_hash is configured with select: false.
     const user = await User.findOne({
       email: normalizedEmail
     }).select('+password_hash');
 
-    if (!user || !user.is_active) {
-      return sendError(res, 401, 'Invalid credentials');
+    if (!user || user.is_active !== true) {
+      return sendError(res, 401, 'Invalid email or password');
     }
 
     const passwordMatches = await verifyPassword(
@@ -253,7 +291,7 @@ exports.login = async (req, res) => {
     );
 
     if (!passwordMatches) {
-      return sendError(res, 401, 'Invalid credentials');
+      return sendError(res, 401, 'Invalid email or password');
     }
 
     const token = signToken(user);
@@ -280,50 +318,41 @@ exports.login = async (req, res) => {
 // ============================================================
 
 exports.forgotPassword = async (req, res) => {
-  const genericMessage =
-    'If an account exists with that email, password reset instructions will be sent shortly.';
-
   try {
-    const { email } = req.body || {};
+    const normalizedEmail = normalizeEmail(req.body?.email);
 
-    // Always return the same response to avoid exposing accounts.
-    if (
-      typeof email !== 'string' ||
-      !email.trim() ||
-      !isValidEmail(normalizeEmail(email))
-    ) {
-      return res.status(200).json({
-        message: genericMessage
-      });
+    // Do not reveal whether an email address has an account.
+    if (!isValidEmail(normalizedEmail)) {
+      return genericResetResponse(res);
     }
-
-    const normalizedEmail = normalizeEmail(email);
 
     const user = await User.findOne({
       email: normalizedEmail,
       role: 'customer',
       is_active: true
-    });
+    }).select('_id email full_name');
 
     if (!user) {
-      return res.status(200).json({
-        message: genericMessage
-      });
+      return genericResetResponse(res);
     }
 
-    const resetToken = crypto.randomBytes(32).toString('hex');
+    // Generate a cryptographically secure, single-use token.
+    const resetToken = crypto
+      .randomBytes(RESET_TOKEN_BYTES)
+      .toString('hex');
 
-    const tokenHash = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
+    const tokenHash = hashResetToken(resetToken);
 
     const expiresAt = new Date(
-      Date.now() + RESET_TOKEN_EXPIRY
+      Date.now() + RESET_TOKEN_EXPIRY_MS
     );
 
-    await User.updateOne(
-      { _id: user._id },
+    // Save the hashed token before sending the email.
+    const updateResult = await User.updateOne(
+      {
+        _id: user._id,
+        is_active: true
+      },
       {
         $set: {
           password_reset_token_hash: tokenHash,
@@ -332,15 +361,27 @@ exports.forgotPassword = async (req, res) => {
       }
     );
 
+    if (updateResult.matchedCount === 0) {
+      return genericResetResponse(res);
+    }
+
     try {
-      await sendPasswordResetEmail({
+      const emailResult = await sendPasswordResetEmail({
         email: user.email,
         customerName: user.full_name,
         resetToken
       });
 
+      console.info('[Password reset email accepted]', {
+        userId: String(user._id),
+        messageId: emailResult?.messageId || null
+      });
+
     } catch (emailError) {
-      // Remove the token only if it is still the same token.
+      logError('Password reset email delivery failed', emailError);
+
+      // Clear only the token generated by this request.
+      // This avoids deleting a newer token from another request.
       await User.updateOne(
         {
           _id: user._id,
@@ -354,19 +395,14 @@ exports.forgotPassword = async (req, res) => {
         }
       );
 
-      logError('Password reset email failed', emailError);
+      // Keep the public response generic.
     }
 
-    return res.status(200).json({
-      message: genericMessage
-    });
+    return genericResetResponse(res);
 
   } catch (error) {
     logError('Forgot password failed', error);
-
-    return res.status(200).json({
-      message: genericMessage
-    });
+    return genericResetResponse(res);
   }
 };
 
@@ -376,10 +412,7 @@ exports.forgotPassword = async (req, res) => {
 
 exports.resetPassword = async (req, res) => {
   try {
-    const {
-      token,
-      password
-    } = req.body || {};
+    const { token, password } = req.body || {};
 
     if (
       typeof token !== 'string' ||
@@ -394,7 +427,7 @@ exports.resetPassword = async (req, res) => {
       );
     }
 
-    if (!isValidPassword(password, 8)) {
+    if (!isValidPassword(password)) {
       return sendError(
         res,
         400,
@@ -402,7 +435,7 @@ exports.resetPassword = async (req, res) => {
       );
     }
 
-    if (!/^[a-f0-9]{64}$/i.test(token)) {
+    if (!RESET_TOKEN_REGEX.test(token)) {
       return sendError(
         res,
         400,
@@ -410,15 +443,10 @@ exports.resetPassword = async (req, res) => {
       );
     }
 
-    const tokenHash = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
-
+    const tokenHash = hashResetToken(token);
     const passwordHash = await hashPassword(password);
 
-    // Atomic update ensures an expired or already-used token
-    // cannot reset the password.
+    // Atomic update: the same token cannot be used twice.
     const result = await User.updateOne(
       {
         password_reset_token_hash: tokenHash,
@@ -446,7 +474,8 @@ exports.resetPassword = async (req, res) => {
     }
 
     return res.status(200).json({
-      message: 'Your password has been reset successfully. You can now log in.'
+      message:
+        'Your password has been reset successfully. You can now log in.'
     });
 
   } catch (error) {
@@ -469,7 +498,7 @@ exports.me = (req, res) => {
     return sendError(res, 401, 'Authentication required');
   }
 
-  return res.json({
+  return res.status(200).json({
     user: req.user
   });
 };
@@ -480,18 +509,24 @@ exports.me = (req, res) => {
 
 exports.myOrders = async (req, res) => {
   try {
-    if (!req.user || !req.user.id) {
+    const actor = getActor(req);
+
+    if (!actor) {
       return sendError(res, 401, 'Authentication required');
     }
 
+    if (!isValidObjectId(actor.id)) {
+      return sendError(res, 401, 'Invalid authenticated user');
+    }
+
     const orders = await Order.find({
-      user_id: req.user.id
+      user_id: actor.id
     })
-      .sort({ created_at: -1 })
+      .sort({ created_at: -1, _id: -1 })
       .limit(MAX_CUSTOMER_ORDERS)
       .lean();
 
-    return res.json({
+    return res.status(200).json({
       orders: serializeMany(orders)
     });
 
@@ -508,6 +543,12 @@ exports.myOrders = async (req, res) => {
 
 exports.createStaff = async (req, res) => {
   try {
+    const actor = getActor(req);
+
+    if (!actor || !['manager', 'owner'].includes(actor.role)) {
+      return sendError(res, 403, 'You are not allowed to create staff accounts');
+    }
+
     const {
       email,
       password,
@@ -516,23 +557,14 @@ exports.createStaff = async (req, res) => {
       role
     } = req.body || {};
 
-    if (
-      typeof email !== 'string' ||
-      typeof password !== 'string' ||
-      typeof full_name !== 'string'
-    ) {
-      return sendError(
-        res,
-        400,
-        'Email, password and full name are required'
-      );
-    }
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedName = normalizeName(full_name);
 
-    if (!isValidEmail(normalizeEmail(email))) {
+    if (!isValidEmail(normalizedEmail)) {
       return sendError(res, 400, 'Please provide a valid email address');
     }
 
-    if (!isValidPassword(password, 8)) {
+    if (!isValidPassword(password)) {
       return sendError(
         res,
         400,
@@ -540,10 +572,7 @@ exports.createStaff = async (req, res) => {
       );
     }
 
-    const normalizedEmail = normalizeEmail(email);
-    const normalizedName = full_name.trim();
-
-    if (!normalizedName || normalizedName.length > 120) {
+    if (!normalizedName || normalizedName.length > MAX_NAME_LENGTH) {
       return sendError(res, 400, 'Please provide a valid full name');
     }
 
@@ -555,21 +584,18 @@ exports.createStaff = async (req, res) => {
       return sendError(res, 400, 'Invalid phone number');
     }
 
-    const allowedRoles =
-      req.user.role === 'owner'
-        ? OWNER_CREATABLE_ROLES
-        : req.user.role === 'manager'
-          ? MANAGER_CREATABLE_ROLES
-          : [];
-
-    if (!allowedRoles.length) {
-      return sendError(res, 403, 'You are not allowed to create staff accounts');
-    }
+    const allowedRoles = actor.role === 'owner'
+      ? OWNER_CREATABLE_ROLES
+      : MANAGER_CREATABLE_ROLES;
 
     const targetRole = role || 'staff';
 
     if (!allowedRoles.includes(targetRole)) {
-      return sendError(res, 403, 'You cannot create an account with that role');
+      return sendError(
+        res,
+        403,
+        'You cannot create an account with that role'
+      );
     }
 
     const existingUser = await User.findOne({
@@ -580,13 +606,11 @@ exports.createStaff = async (req, res) => {
       return sendError(res, 409, 'Email already in use');
     }
 
-    const passwordHash = await hashPassword(password);
-
     const user = await User.create({
       email: normalizedEmail,
-      password_hash: passwordHash,
+      password_hash: await hashPassword(password),
       full_name: normalizedName,
-      phone: phone ? phone.trim() : null,
+      phone: typeof phone === 'string' ? phone.trim() : null,
       role: targetRole,
       is_active: true
     });
@@ -599,7 +623,7 @@ exports.createStaff = async (req, res) => {
   } catch (error) {
     logError('Staff creation failed', error);
 
-    if (handleDuplicateError(error)) {
+    if (isDuplicateError(error)) {
       return sendError(res, 409, 'Email already in use');
     }
 
@@ -618,16 +642,14 @@ exports.listStaff = async (req, res) => {
         $in: STAFF_ROLES
       }
     })
-      .select(
-        'email full_name phone role is_active created_at'
-      )
+      .select('email full_name phone role is_active created_at')
       .sort({
         role: 1,
         full_name: 1
       })
       .lean();
 
-    return res.json({
+    return res.status(200).json({
       users: users.map(user => ({
         id: String(user._id),
         email: user.email,
@@ -635,7 +657,7 @@ exports.listStaff = async (req, res) => {
         phone: user.phone || null,
         role: user.role,
         is_active: Boolean(user.is_active),
-        created_at: user.created_at
+        created_at: user.created_at || null
       }))
     });
 
@@ -652,7 +674,12 @@ exports.listStaff = async (req, res) => {
 
 exports.updateStaff = async (req, res) => {
   try {
-    const { id } = req.params;
+    const actor = getActor(req);
+    const { id } = req.params || {};
+
+    if (!actor) {
+      return sendError(res, 401, 'Authentication required');
+    }
 
     if (!isValidObjectId(id)) {
       return sendError(res, 400, 'Invalid staff account ID');
@@ -668,8 +695,7 @@ exports.updateStaff = async (req, res) => {
       return sendError(res, 400, 'This account is not a staff account');
     }
 
-    // Enforce staff hierarchy.
-    if (!canManageStaff(req.user, user)) {
+    if (!canManageStaff(actor, user)) {
       return sendError(
         res,
         403,
@@ -677,8 +703,7 @@ exports.updateStaff = async (req, res) => {
       );
     }
 
-    // Prevent staff from changing their own permissions.
-    if (String(req.user.id) === String(user._id)) {
+    if (String(actor.id) === String(user._id)) {
       return sendError(
         res,
         403,
@@ -694,35 +719,32 @@ exports.updateStaff = async (req, res) => {
       password
     } = req.body || {};
 
-    // Full name validation.
     if (full_name !== undefined) {
-      if (
-        typeof full_name !== 'string' ||
-        !full_name.trim() ||
-        full_name.trim().length > 120
-      ) {
+      const normalizedName = normalizeName(full_name);
+
+      if (!normalizedName || normalizedName.length > MAX_NAME_LENGTH) {
         return sendError(res, 400, 'Invalid full name');
       }
 
-      user.full_name = full_name.trim();
+      user.full_name = normalizedName;
     }
 
-    // Phone validation.
     if (phone !== undefined) {
       if (phone !== null && typeof phone !== 'string') {
         return sendError(res, 400, 'Invalid phone number');
       }
 
-      user.phone = phone ? phone.trim() : null;
+      user.phone = typeof phone === 'string' && phone.trim()
+        ? phone.trim()
+        : null;
     }
 
-    // Role permissions.
     if (role !== undefined) {
       if (!STAFF_ROLES.includes(role)) {
         return sendError(res, 400, 'Invalid staff role');
       }
 
-      if (req.user.role !== 'owner') {
+      if (actor.role !== 'owner') {
         return sendError(
           res,
           403,
@@ -733,7 +755,6 @@ exports.updateStaff = async (req, res) => {
       user.role = role;
     }
 
-    // Account activation.
     if (is_active !== undefined) {
       if (typeof is_active !== 'boolean') {
         return sendError(res, 400, 'Invalid account status');
@@ -742,9 +763,8 @@ exports.updateStaff = async (req, res) => {
       user.is_active = is_active;
     }
 
-    // Password update.
     if (password !== undefined) {
-      if (!isValidPassword(password, 8)) {
+      if (!isValidPassword(password)) {
         return sendError(
           res,
           400,
@@ -754,14 +774,15 @@ exports.updateStaff = async (req, res) => {
 
       user.password_hash = await hashPassword(password);
 
-      // Invalidate outstanding password reset links.
+      // Invalidate outstanding reset links when an administrator
+      // changes a staff member's password.
       user.password_reset_token_hash = null;
       user.password_reset_expires = null;
     }
 
     await user.save();
 
-    return res.json({
+    return res.status(200).json({
       message: 'Staff account updated successfully',
       user: safeUser(user, true)
     });

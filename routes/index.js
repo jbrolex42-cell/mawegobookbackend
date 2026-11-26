@@ -159,7 +159,9 @@ const requiredMethods = {
   promoCtrl: [
     'validate',
     'create',
-    'list'
+    'list',
+    'update',
+    'remove'
   ],
 
   notificationCtrl: [
@@ -768,6 +770,21 @@ router.delete(
 | Store Settings
 |--------------------------------------------------------------------------
 */
+// Update promotion.
+router.put(
+  '/admin/promos/:id',
+  authenticate,
+  requireManager,
+  promoCtrl.update
+);
+
+// Deactivate promotion (soft delete).
+router.delete(
+  '/admin/promos/:id',
+  authenticate,
+  requireManager,
+  promoCtrl.remove
+);
 
 router.get('/settings', async (req, res) => {
   try {

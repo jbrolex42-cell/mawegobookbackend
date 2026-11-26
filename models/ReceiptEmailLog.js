@@ -5,19 +5,28 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
+/* -------------------------------------------------------------------------- */
+/* Configuration                                                              */
+/* -------------------------------------------------------------------------- */
+
 const RECEIPT_EMAIL_STATUSES = Object.freeze([
   'pending',
   'sent',
   'failed'
 ]);
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/* -------------------------------------------------------------------------- */
+/* Schema                                                                     */
+/* -------------------------------------------------------------------------- */
+
 const receiptEmailLogSchema = new Schema(
   {
     order_id: {
       type: Schema.Types.ObjectId,
       ref: 'Order',
-      required: true,
-      index: true
+      required: true
     },
 
     customer_email: {
@@ -28,7 +37,7 @@ const receiptEmailLogSchema = new Schema(
       maxlength: 254,
       validate: {
         validator(value) {
-          return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+          return EMAIL_REGEX.test(value);
         },
         message: 'Please provide a valid customer email address.'
       }
@@ -40,8 +49,7 @@ const receiptEmailLogSchema = new Schema(
       default: 'pending',
       required: true,
       lowercase: true,
-      trim: true,
-      index: true
+      trim: true
     },
 
     brevo_message_id: {
@@ -80,8 +88,7 @@ const receiptEmailLogSchema = new Schema(
 
     next_retry_at: {
       type: Date,
-      default: null,
-      index: true
+      default: null
     }
   },
   {
@@ -105,49 +112,42 @@ const receiptEmailLogSchema = new Schema(
   }
 );
 
-/*
-|--------------------------------------------------------------------------
-| Virtuals
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Virtuals                                                                   */
+/* -------------------------------------------------------------------------- */
 
 receiptEmailLogSchema.virtual('is_sent').get(function () {
   return this.status === 'sent';
 });
 
 receiptEmailLogSchema.virtual('can_retry').get(function () {
-  return this.status === 'failed' || this.status === 'pending';
+  return this.status === 'failed';
 });
 
-/*
-|--------------------------------------------------------------------------
-| Validation Middleware
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Validation Middleware                                                      */
+/* -------------------------------------------------------------------------- */
 
 receiptEmailLogSchema.pre('validate', function () {
   if (this.status === 'sent') {
     this.sent_at = this.sent_at || new Date();
     this.error_message = null;
     this.next_retry_at = null;
-  } else {
+  }
+
+  if (this.status === 'failed') {
     this.sent_at = null;
   }
 
-  if (this.status !== 'failed') {
+  if (this.status === 'pending') {
+    this.sent_at = null;
     this.next_retry_at = null;
-  }
-
-  if (this.status !== 'pending') {
-    this.error_message = this.error_message || null;
   }
 });
 
-/*
-|--------------------------------------------------------------------------
-| Instance Methods
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Instance Methods                                                           */
+/* -------------------------------------------------------------------------- */
 
 receiptEmailLogSchema.methods.recordAttempt = function () {
   this.attempts += 1;
@@ -159,7 +159,9 @@ receiptEmailLogSchema.methods.recordAttempt = function () {
   return this.save();
 };
 
-receiptEmailLogSchema.methods.markAsSent = function (messageId = null) {
+receiptEmailLogSchema.methods.markAsSent = function (
+  messageId = null
+) {
   this.status = 'sent';
   this.brevo_message_id = messageId;
   this.sent_at = new Date();
@@ -174,25 +176,31 @@ receiptEmailLogSchema.methods.markAsFailed = function (
   retryAt = null
 ) {
   this.status = 'failed';
+
   this.error_message = error
     ? String(error.message || error).slice(0, 5000)
     : 'Receipt email delivery failed.';
 
   this.sent_at = null;
-  this.next_retry_at = retryAt instanceof Date ? retryAt : null;
+
+  this.next_retry_at =
+    retryAt instanceof Date && !Number.isNaN(retryAt.getTime())
+      ? retryAt
+      : null;
 
   return this.save();
 };
 
-/*
-|--------------------------------------------------------------------------
-| Static Methods
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Static Methods                                                             */
+/* -------------------------------------------------------------------------- */
 
 receiptEmailLogSchema.statics.findByOrder = function (orderId) {
-  return this.find({ order_id: orderId })
-    .sort({ created_at: -1 });
+  return this.find({
+    order_id: orderId
+  }).sort({
+    created_at: -1
+  });
 };
 
 receiptEmailLogSchema.statics.findPending = function (limit = 100) {
@@ -209,8 +217,6 @@ receiptEmailLogSchema.statics.findPending = function (limit = 100) {
 };
 
 receiptEmailLogSchema.statics.findRetryable = function (limit = 100) {
-  const now = new Date();
-
   const safeLimit = Math.min(
     Math.max(Number(limit) || 100, 1),
     1000
@@ -220,35 +226,23 @@ receiptEmailLogSchema.statics.findRetryable = function (limit = 100) {
     status: 'failed',
     $or: [
       { next_retry_at: null },
-      { next_retry_at: { $lte: now } }
+      { next_retry_at: { $lte: new Date() } }
     ]
   })
-    .sort({ next_retry_at: 1, updated_at: 1 })
+    .sort({
+      next_retry_at: 1,
+      updated_at: 1
+    })
     .limit(safeLimit);
 };
 
-/*
-|--------------------------------------------------------------------------
-| Indexes
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Indexes                                                                    */
+/* -------------------------------------------------------------------------- */
 
-// Efficient order and status lookups.
+// Prevent multiple pending receipt records for one order.
 receiptEmailLogSchema.index(
-  {
-    order_id: 1,
-    status: 1
-  },
-  {
-    name: 'receipt_email_order_status'
-  }
-);
-
-// Prevent multiple pending receipt email records for one order.
-receiptEmailLogSchema.index(
-  {
-    order_id: 1
-  },
+  { order_id: 1 },
   {
     unique: true,
     partialFilterExpression: {
@@ -258,7 +252,19 @@ receiptEmailLogSchema.index(
   }
 );
 
-// Efficient email delivery history.
+// Efficient order history and status lookups.
+receiptEmailLogSchema.index(
+  {
+    order_id: 1,
+    status: 1,
+    created_at: -1
+  },
+  {
+    name: 'receipt_email_order_history'
+  }
+);
+
+// Efficient customer delivery history.
 receiptEmailLogSchema.index(
   {
     customer_email: 1,
@@ -269,7 +275,7 @@ receiptEmailLogSchema.index(
   }
 );
 
-// Efficient retry processing.
+// Efficient retry queue processing.
 receiptEmailLogSchema.index(
   {
     status: 1,
@@ -281,11 +287,9 @@ receiptEmailLogSchema.index(
   }
 );
 
-/*
-|--------------------------------------------------------------------------
-| Model Export
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Model Export                                                               */
+/* -------------------------------------------------------------------------- */
 
 module.exports =
   mongoose.models.ReceiptEmailLog ||
