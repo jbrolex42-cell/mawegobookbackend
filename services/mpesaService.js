@@ -9,6 +9,7 @@ const ENVIRONMENTS = Object.freeze({
 });
 
 const DEFAULT_TRANSACTION_TYPE = 'CustomerPayBillOnline';
+
 const OAUTH_TIMEOUT_MS = 20000;
 const STK_TIMEOUT_MS = 30000;
 const TOKEN_EXPIRY_BUFFER_MS = 60000;
@@ -16,6 +17,10 @@ const TOKEN_EXPIRY_BUFFER_MS = 60000;
 let cachedAccessToken = null;
 let tokenExpiresAt = 0;
 let tokenRequestPromise = null;
+
+// -----------------------------------------------------------------------------
+// CONFIGURATION
+// -----------------------------------------------------------------------------
 
 function getConfig() {
   const environment = String(
@@ -25,19 +30,38 @@ function getConfig() {
   const baseUrl = ENVIRONMENTS[environment];
 
   if (!baseUrl) {
-    throw new Error('MPESA_ENVIRONMENT must be sandbox or production.');
+    throw new Error(
+      'MPESA_ENVIRONMENT must be sandbox or production.'
+    );
   }
 
   const config = {
     environment,
     baseUrl,
-    consumerKey: String(process.env.MPESA_CONSUMER_KEY || '').trim(),
-    consumerSecret: String(process.env.MPESA_CONSUMER_SECRET || '').trim(),
-    shortcode: String(process.env.MPESA_SHORTCODE || '').trim(),
-    passkey: String(process.env.MPESA_PASSKEY || '').trim(),
-    callbackUrl: String(process.env.MPESA_CALLBACK_URL || '').trim(),
+
+    consumerKey: String(
+      process.env.MPESA_CONSUMER_KEY || ''
+    ).trim(),
+
+    consumerSecret: String(
+      process.env.MPESA_CONSUMER_SECRET || ''
+    ).trim(),
+
+    shortcode: String(
+      process.env.MPESA_SHORTCODE || ''
+    ).trim(),
+
+    passkey: String(
+      process.env.MPESA_PASSKEY || ''
+    ).trim(),
+
+    callbackUrl: String(
+      process.env.MPESA_CALLBACK_URL || ''
+    ).trim(),
+
     transactionType: String(
-      process.env.MPESA_TRANSACTION_TYPE || DEFAULT_TRANSACTION_TYPE
+      process.env.MPESA_TRANSACTION_TYPE ||
+      DEFAULT_TRANSACTION_TYPE
     ).trim()
   };
 
@@ -50,11 +74,15 @@ function getConfig() {
   ].filter(key => !config[key]);
 
   if (missing.length) {
-    throw new Error(`Missing M-Pesa configuration: ${missing.join(', ')}.`);
+    throw new Error(
+      `Missing M-Pesa configuration: ${missing.join(', ')}.`
+    );
   }
 
   if (!/^\d+$/.test(config.shortcode)) {
-    throw new Error('MPESA_SHORTCODE must contain digits only.');
+    throw new Error(
+      'MPESA_SHORTCODE must contain digits only.'
+    );
   }
 
   let callback;
@@ -62,7 +90,9 @@ function getConfig() {
   try {
     callback = new URL(config.callbackUrl);
   } catch {
-    throw new Error('MPESA_CALLBACK_URL must be a valid HTTPS URL.');
+    throw new Error(
+      'MPESA_CALLBACK_URL must be a valid HTTPS URL.'
+    );
   }
 
   if (
@@ -71,48 +101,82 @@ function getConfig() {
     callback.username ||
     callback.password
   ) {
-    throw new Error('MPESA_CALLBACK_URL must be a valid HTTPS URL.');
+    throw new Error(
+      'MPESA_CALLBACK_URL must be a valid HTTPS URL.'
+    );
   }
 
-  if (![
+  const supportedTypes = [
     'CustomerPayBillOnline',
     'CustomerBuyGoodsOnline'
-  ].includes(config.transactionType)) {
-    throw new Error('Invalid MPESA_TRANSACTION_TYPE.');
+  ];
+
+  if (!supportedTypes.includes(config.transactionType)) {
+    throw new Error(
+      'Invalid MPESA_TRANSACTION_TYPE.'
+    );
   }
 
   return Object.freeze(config);
 }
 
+// -----------------------------------------------------------------------------
+// FETCH AND RESPONSE HELPERS
+// -----------------------------------------------------------------------------
+
 function getFetch() {
   if (typeof fetch !== 'function') {
-    throw new Error('Node.js 18 or newer is required for M-Pesa requests.');
+    throw new Error(
+      'Node.js 18 or newer is required for M-Pesa requests.'
+    );
   }
 
   return fetch;
 }
 
-function requestWithTimeout(url, options, timeoutMs, timeoutMessage) {
+async function requestWithTimeout(
+  url,
+  options,
+  timeoutMs,
+  timeoutMessage,
+  uncertain = false
+) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  return getFetch()(url, {
-    ...options,
-    signal: controller.signal
-  }).catch(error => {
-    if (error.name === 'AbortError') {
-      const timeoutError = new Error(timeoutMessage);
-      timeoutError.code = 'MPESA_REQUEST_TIMEOUT';
-      timeoutError.uncertain = true;
-      throw timeoutError;
-    }
+  const timer = setTimeout(
+    () => controller.abort(),
+    timeoutMs
+  );
 
-    throw error;
-  }).finally(() => clearTimeout(timer));
+  try {
+    return await getFetch()(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } catch (error) {
+    const timeoutError = new Error(
+      error?.name === 'AbortError'
+        ? timeoutMessage
+        : 'Unable to communicate with Safaricom.'
+    );
+
+    timeoutError.code =
+      error?.name === 'AbortError'
+        ? 'MPESA_REQUEST_TIMEOUT'
+        : 'MPESA_NETWORK_ERROR';
+
+    timeoutError.uncertain = Boolean(uncertain);
+    timeoutError.cause = error;
+
+    throw timeoutError;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function parseResponse(response) {
   const raw = await response.text();
+
   let data = {};
 
   if (raw) {
@@ -120,7 +184,9 @@ async function parseResponse(response) {
       data = JSON.parse(raw);
     } catch {
       if (response.ok) {
-        throw new Error('Safaricom returned an unreadable response.');
+        throw new Error(
+          'Safaricom returned an unreadable response.'
+        );
       }
     }
   }
@@ -133,18 +199,37 @@ async function parseResponse(response) {
       `Safaricom returned HTTP ${response.status}.`;
 
     const error = new Error(message);
+
     error.statusCode = response.status;
-    error.providerCode = data.errorCode || data.error_code || null;
-    error.providerRequestId = data.requestId || null;
+
+    error.providerCode =
+      data.errorCode ||
+      data.error_code ||
+      null;
+
+    error.providerRequestId =
+      data.requestId ||
+      null;
+
     throw error;
   }
 
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    throw new Error('Invalid response received from Safaricom.');
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    Array.isArray(data)
+  ) {
+    throw new Error(
+      'Invalid response received from Safaricom.'
+    );
   }
 
   return data;
 }
+
+// -----------------------------------------------------------------------------
+// VALIDATION
+// -----------------------------------------------------------------------------
 
 function normalizePhone(phone) {
   if (
@@ -152,12 +237,18 @@ function normalizePhone(phone) {
     phone === undefined ||
     !['string', 'number'].includes(typeof phone)
   ) {
-    throw new Error('Enter a valid Kenyan mobile number.');
+    throw new Error(
+      'Enter a valid Kenyan mobile number.'
+    );
   }
 
-  let value = String(phone).trim().replace(/[\s()-]/g, '');
+  let value = String(phone)
+    .trim()
+    .replace(/[\s()-]/g, '');
 
-  if (value.startsWith('+')) value = value.slice(1);
+  if (value.startsWith('+')) {
+    value = value.slice(1);
+  }
 
   if (/^0[17]\d{8}$/.test(value)) {
     value = `254${value.slice(1)}`;
@@ -177,22 +268,35 @@ function normalizePhone(phone) {
 function normalizeAmount(amount) {
   const value = Number(amount);
 
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new Error('M-Pesa amount must be a positive whole number.');
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1
+  ) {
+    throw new Error(
+      'M-Pesa amount must be a positive whole number.'
+    );
   }
 
   return value;
 }
 
 function normalizeOrderNumber(orderNumber) {
-  const value = String(orderNumber || '').trim();
+  const value = String(
+    orderNumber || ''
+  ).trim();
 
   if (!value || value.length > 100) {
-    throw new Error('A valid order number is required.');
+    throw new Error(
+      'A valid order number is required.'
+    );
   }
 
   return value;
 }
+
+// -----------------------------------------------------------------------------
+// TIMESTAMP AND PASSWORD
+// -----------------------------------------------------------------------------
 
 function getTimestamp() {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -209,7 +313,9 @@ function getTimestamp() {
   const values = {};
 
   for (const part of parts) {
-    if (part.type !== 'literal') values[part.type] = part.value;
+    if (part.type !== 'literal') {
+      values[part.type] = part.value;
+    }
   }
 
   return (
@@ -222,9 +328,15 @@ function getTimestamp() {
   );
 }
 
-function createStkPassword(shortcode, passkey, timestamp) {
+function createStkPassword(
+  shortcode,
+  passkey,
+  timestamp
+) {
   if (!shortcode || !passkey || !timestamp) {
-    throw new Error('Unable to generate the M-Pesa STK password.');
+    throw new Error(
+      'Unable to generate the M-Pesa STK password.'
+    );
   }
 
   return Buffer.from(
@@ -233,7 +345,13 @@ function createStkPassword(shortcode, passkey, timestamp) {
   ).toString('base64');
 }
 
-async function getAccessToken({ forceRefresh = false } = {}) {
+// -----------------------------------------------------------------------------
+// ACCESS TOKEN
+// -----------------------------------------------------------------------------
+
+async function getAccessToken({
+  forceRefresh = false
+} = {}) {
   if (
     !forceRefresh &&
     cachedAccessToken &&
@@ -247,6 +365,7 @@ async function getAccessToken({ forceRefresh = false } = {}) {
   }
 
   const config = getConfig();
+
   const credentials = Buffer.from(
     `${config.consumerKey}:${config.consumerSecret}`
   ).toString('base64');
@@ -271,15 +390,22 @@ async function getAccessToken({ forceRefresh = false } = {}) {
       typeof data.access_token !== 'string' ||
       !data.access_token.trim()
     ) {
-      throw new Error('Safaricom did not return an access token.');
+      throw new Error(
+        'Safaricom did not return an access token.'
+      );
     }
 
-    const expiresIn = Number(data.expires_in) || 3599;
+    const expiresIn =
+      Number(data.expires_in) || 3599;
 
     cachedAccessToken = data.access_token;
+
     tokenExpiresAt =
       Date.now() +
-      Math.max(1000, expiresIn * 1000 - TOKEN_EXPIRY_BUFFER_MS);
+      Math.max(
+        1000,
+        expiresIn * 1000 - TOKEN_EXPIRY_BUFFER_MS
+      );
 
     return cachedAccessToken;
   })();
@@ -301,18 +427,27 @@ function clearAccessTokenCache() {
   tokenRequestPromise = null;
 }
 
+// -----------------------------------------------------------------------------
+// ACCOUNT REFERENCE
+// -----------------------------------------------------------------------------
+
 function createAccountReference(orderNumber) {
-  // Daraja AccountReference has a short length limit.
-  // A deterministic hash suffix avoids collisions caused by truncation.
+  const normalized = normalizeOrderNumber(orderNumber);
+
   const suffix = crypto
     .createHash('sha256')
-    .update(orderNumber)
+    .update(normalized)
     .digest('hex')
     .slice(0, 10)
     .toUpperCase();
 
+  // 12 characters, suitable for the Daraja AccountReference field.
   return `MB${suffix}`;
 }
+
+// -----------------------------------------------------------------------------
+// STK PAYLOAD
+// -----------------------------------------------------------------------------
 
 function createStkPayload({
   config,
@@ -321,28 +456,50 @@ function createStkPayload({
   orderNumber,
   timestamp
 }) {
+  if (!config || !timestamp) {
+    throw new Error(
+      'M-Pesa STK configuration is incomplete.'
+    );
+  }
+
   const normalizedPhone = normalizePhone(phone);
   const normalizedAmount = normalizeAmount(amount);
-  const normalizedOrderNumber = normalizeOrderNumber(orderNumber);
+  const normalizedOrderNumber =
+    normalizeOrderNumber(orderNumber);
 
   return {
     BusinessShortCode: config.shortcode,
+
     Password: createStkPassword(
       config.shortcode,
       config.passkey,
       timestamp
     ),
+
     Timestamp: timestamp,
+
     TransactionType: config.transactionType,
+
     Amount: normalizedAmount,
+
     PartyA: normalizedPhone,
+
     PartyB: config.shortcode,
+
     PhoneNumber: normalizedPhone,
+
     CallBackURL: config.callbackUrl,
-    AccountReference: createAccountReference(normalizedOrderNumber),
-    TransactionDesc: 'Mawego book payment'
+
+    AccountReference:
+      createAccountReference(normalizedOrderNumber),
+
+    TransactionDesc: 'Book payment'
   };
 }
+
+// -----------------------------------------------------------------------------
+// INITIATE STK PUSH
+// -----------------------------------------------------------------------------
 
 async function initiateStkPush({
   phone,
@@ -353,9 +510,11 @@ async function initiateStkPush({
 
   const normalizedPhone = normalizePhone(phone);
   const normalizedAmount = normalizeAmount(amount);
-  const normalizedOrderNumber = normalizeOrderNumber(orderNumber);
+  const normalizedOrderNumber =
+    normalizeOrderNumber(orderNumber);
 
   const accessToken = await getAccessToken();
+
   const timestamp = getTimestamp();
 
   const payload = createStkPayload({
@@ -370,57 +529,118 @@ async function initiateStkPush({
     `${config.baseUrl}/mpesa/stkpush/v1/processrequest`,
     {
       method: 'POST',
+
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
+
       body: JSON.stringify(payload)
     },
     STK_TIMEOUT_MS,
-    'M-Pesa request timed out. Its status is unknown; check the transaction before retrying.'
+    'M-Pesa request timed out. Its status is unknown; check the transaction before retrying.',
+    true
   );
 
-  const data = await parseResponse(response);
+  let data;
+
+  try {
+    data = await parseResponse(response);
+  } catch (error) {
+    // A gateway/server error may occur after Safaricom has
+    // received the request. Do not assume it was rejected.
+    if (
+      response.status >= 500 ||
+      response.status === 408
+    ) {
+      error.uncertain = true;
+    }
+
+    throw error;
+  }
+
+  if (data.ResponseCode === undefined) {
+    const error = new Error(
+      'Safaricom returned an incomplete STK response. Verify the transaction before retrying.'
+    );
+
+    error.uncertain = true;
+
+    throw error;
+  }
 
   if (String(data.ResponseCode) !== '0') {
     const error = new Error(
       data.ResponseDescription ||
       'Safaricom rejected the STK Push request.'
     );
-    error.providerCode = data.ResponseCode || null;
-    error.providerDescription = data.ResponseDescription || null;
+
+    error.providerCode = data.ResponseCode;
+    error.providerDescription =
+      data.ResponseDescription || null;
+
+    error.uncertain = false;
+
     throw error;
   }
 
-  if (!data.CheckoutRequestID || !data.MerchantRequestID) {
-    throw new Error(
-      'Safaricom accepted the request but did not return its payment identifiers.'
+  if (
+    !data.CheckoutRequestID ||
+    !data.MerchantRequestID
+  ) {
+    const error = new Error(
+      'Safaricom may have accepted the payment request, but the payment identifiers were missing. Verify the transaction before retrying.'
     );
+
+    error.uncertain = true;
+
+    throw error;
   }
 
   return {
     success: true,
-    merchantRequestId: data.MerchantRequestID,
-    checkoutRequestId: data.CheckoutRequestID,
-    responseCode: String(data.ResponseCode),
-    responseDescription: data.ResponseDescription || '',
-    customerMessage: data.CustomerMessage || '',
+
+    merchantRequestId:
+      data.MerchantRequestID,
+
+    checkoutRequestId:
+      data.CheckoutRequestID,
+
+    responseCode:
+      String(data.ResponseCode),
+
+    responseDescription:
+      data.ResponseDescription || '',
+
+    customerMessage:
+      data.CustomerMessage || '',
+
     phone: normalizedPhone,
+
     amount: normalizedAmount,
+
     orderNumber: normalizedOrderNumber
   };
 }
+
+// -----------------------------------------------------------------------------
+// EXPORTS
+// -----------------------------------------------------------------------------
 
 module.exports = {
   getConfig,
   getAccessToken,
   clearAccessTokenCache,
+
   getTimestamp,
   createStkPassword,
   createStkPayload,
+  createAccountReference,
+
   normalizePhone,
   normalizeAmount,
   normalizeOrderNumber,
+
   initiateStkPush
 };

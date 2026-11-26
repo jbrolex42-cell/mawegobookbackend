@@ -1,27 +1,6 @@
 
 'use strict';
 
-/**
- * Order Controller
- *
- * Features:
- * - Customer checkout
- * - Product price and stock validation
- * - Delivery fee calculation
- * - Promo code redemption
- * - Reward points redemption and earning
- * - Stock deduction and restoration
- * - Payment confirmation
- * - Customer order tracking and cancellation
- * - Admin order management
- * - Order receipt emails
- *
- * Important:
- * Stock and reward-point operations use guarded database updates and
- * ledger checks. For full atomicity across multiple collections, use
- * MongoDB transactions on a replica set.
- */
-
 const mongoose = require('mongoose');
 
 const {
@@ -188,20 +167,7 @@ function getOrderNumber(order) {
 function isOrderCancelled(order) {
   return order?.order_status === 'cancelled';
 }
-
-// -----------------------------------------------------------------------------
-// Stock management
-// -----------------------------------------------------------------------------
-
-/**
- * Deducts stock for an order.
- *
- * The ledger check prevents ordinary repeat deductions.
- * Product updates use a stock condition to prevent negative stock.
- *
- * @param {Object} order
- * @returns {Promise<boolean>}
- */
+ 
 async function deductStockForOrder(order) {
   if (!order?._id) {
     throw new Error('A valid order is required to deduct stock.');
@@ -279,14 +245,6 @@ async function deductStockForOrder(order) {
   return true;
 }
 
-/**
- * Restores stock for a cancelled order.
- *
- * A sale_cancel ledger entry prevents normal repeated restoration.
- *
- * @param {Object} order
- * @returns {Promise<boolean>}
- */
 async function restoreStockForOrder(order) {
   if (!order?._id) {
     throw new Error('A valid order is required to restore stock.');
@@ -355,17 +313,6 @@ async function restoreStockForOrder(order) {
   return true;
 }
 
-// -----------------------------------------------------------------------------
-// Reward points
-// -----------------------------------------------------------------------------
-
-/**
- * Awards reward points after successful payment.
- *
- * @param {string} userId
- * @param {Object} order
- * @param {number} points
- */
 async function awardPoints(userId, order, points) {
   const amount = Math.floor(Number(points));
 
@@ -410,13 +357,6 @@ async function awardPoints(userId, order, points) {
   return true;
 }
 
-/**
- * Reserves reward points during checkout.
- *
- * If ledger creation fails, the balance is restored here.
- * The caller must only mark the reservation as successful after this
- * function completes.
- */
 async function reservePoints(userId, orderId, points, orderNumber) {
   const amount = Math.floor(Number(points));
 
@@ -472,9 +412,6 @@ async function reservePoints(userId, orderId, points, orderNumber) {
   }
 }
 
-/**
- * Returns redeemed points when an order is cancelled.
- */
 async function refundRedeemedPoints(order) {
   const points = Math.floor(Number(order?.points_redeemed || 0));
 
@@ -530,9 +467,6 @@ async function refundRedeemedPoints(order) {
   return true;
 }
 
-/**
- * Compensates a successful points reservation if checkout fails later.
- */
 async function reverseCheckoutPoints(userId, order) {
   if (!userId || !order?._id) {
     return false;
@@ -591,13 +525,6 @@ async function reverseCheckoutPoints(userId, order) {
   return true;
 }
 
-// -----------------------------------------------------------------------------
-// Promo code usage
-// -----------------------------------------------------------------------------
-
-/**
- * Increments promo usage only if the code is still active and available.
- */
 async function consumePromoCode(code) {
   if (!code) return false;
 
@@ -639,9 +566,6 @@ async function consumePromoCode(code) {
   return true;
 }
 
-/**
- * Best-effort rollback of promo usage after a failed checkout.
- */
 async function reversePromoUsage(code) {
   if (!code) return;
 
@@ -759,10 +683,6 @@ function validateCheckoutBody(body, authenticatedUser) {
   return null;
 }
 
-/**
- * Combines duplicate product IDs so a product cannot bypass stock checks
- * by appearing multiple times in the submitted basket.
- */
 function normalizeBasketItems(items) {
   const grouped = new Map();
 
@@ -786,17 +706,6 @@ function normalizeBasketItems(items) {
   }));
 }
 
-// -----------------------------------------------------------------------------
-// Create order
-// -----------------------------------------------------------------------------
-
-/**
- * POST /api/orders
- *
- * Creates an order and reserves redeemed points.
- * COD orders deduct stock immediately.
- * Other payment methods deduct stock after successful payment.
- */
 exports.create = async (req, res) => {
   let createdOrder = null;
   let pointsReserved = false;
@@ -1118,15 +1027,6 @@ exports.create = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Public order lookup
-// -----------------------------------------------------------------------------
-
-/**
- * GET /api/orders/track/:orderNumber
- *
- * If a phone number is supplied, it must match the order.
- */
 exports.getByNumber = async (req, res) => {
   try {
     const orderNumber = normalizeString(req.params.orderNumber);
@@ -1174,15 +1074,6 @@ exports.getByNumber = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Customer order status
-// -----------------------------------------------------------------------------
-
-/**
- * GET /api/orders/:id/status
- *
- * Customers can only view their own order status.
- */
 exports.getCustomerStatus = async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -1225,16 +1116,6 @@ exports.getCustomerStatus = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Customer cancellation
-// -----------------------------------------------------------------------------
-
-/**
- * PATCH /api/orders/:id/cancel
- *
- * Customers may cancel unpaid pending or confirmed orders.
- * Paid orders must go through the refund process.
- */
 exports.cancelCustomerOrder = async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -1299,20 +1180,6 @@ exports.cancelCustomerOrder = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Admin order listing
-// -----------------------------------------------------------------------------
-
-/**
- * GET /api/admin/orders
- *
- * Supports:
- * - page
- * - limit
- * - status
- * - payment_status
- * - q
- */
 exports.listAdmin = async (req, res) => {
   try {
     const { page, limit, skip } = getPagination(req.query);
@@ -1383,13 +1250,6 @@ exports.listAdmin = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Admin order details
-// -----------------------------------------------------------------------------
-
-/**
- * GET /api/admin/orders/:id
- */
 exports.getAdmin = async (req, res) => {
   try {
     if (!isValidObjectId(req.params.id)) {
@@ -1418,16 +1278,6 @@ exports.getAdmin = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Admin order and payment status updates
-// -----------------------------------------------------------------------------
-
-/**
- * PATCH /api/admin/orders/:id/status
- *
- * Uses markPaid() for payment confirmation so that stock, points,
- * and receipt processing remain centralized.
- */
 exports.updateStatus = async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -1525,19 +1375,6 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Payment confirmation
-// -----------------------------------------------------------------------------
-
-/**
- * Marks an order as paid.
- *
- * Called by verified payment callbacks or trusted admin payment actions.
- *
- * @param {string} orderId
- * @param {Object} paymentMeta
- * @returns {Promise<Object|null>}
- */
 exports.markPaid = async (orderId, paymentMeta = {}) => {
   if (!isValidObjectId(orderId)) {
     throw new Error('Invalid order ID.');
