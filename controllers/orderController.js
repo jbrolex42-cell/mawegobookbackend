@@ -83,7 +83,30 @@ function normalizeString(value) {
 }
 
 function normalizePhone(value) {
-  return String(value || '').replace(/[\s-]+/g, '');
+  let phone = String(value || '')
+    .trim()
+    .replace(/[^\d+]/g, '');
+
+  if (phone.startsWith('+')) {
+    phone = phone.slice(1);
+  }
+
+  // Convert international dialing prefix.
+  if (phone.startsWith('00254')) {
+    phone = phone.slice(2);
+  }
+
+  // Convert Kenyan local format: 07XXXXXXXX / 01XXXXXXXX.
+  if (/^0[17]\d{8}$/.test(phone)) {
+    phone = '254' + phone.slice(1);
+  }
+
+  // Convert Kenyan mobile number without the leading zero.
+  if (/^[17]\d{8}$/.test(phone)) {
+    phone = '254' + phone;
+  }
+
+  return phone;
 }
 
 function normalizeMoney(value) {
