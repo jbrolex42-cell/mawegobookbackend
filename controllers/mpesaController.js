@@ -12,94 +12,45 @@ const {
 const mpesaService = require('../services/mpesaService');
 const orderController = require('./orderController');
 
-// ============================================================
-// CONFIGURATION
-// ============================================================
-
 const PROVIDER = 'mpesa';
+const ACTIVE_STATUSES = ['initiated', 'pending'];
 
-const ACTIVE_TRANSACTION_STATUSES = [
-  'initiated',
-  'pending'
-];
-
-// ============================================================
-// SHARED HELPERS
-// ============================================================
-
-function sendError(res, status, message) {
+function sendError(res, status, message, extra = {}) {
   return res.status(status).json({
-    error: message
+    success: false,
+    message,
+    ...extra
   });
 }
 
 function logError(context, error) {
-  console.error(
-    `[${context}]`,
-    error.message || error
-  );
+  console.error(`[${context}]`, {
+    message: error?.message || String(error),
+    code: error?.code || null,
+    providerCode: error?.providerCode || null
+  });
 }
 
-function isValidObjectId(id) {
+function isValidObjectId(value) {
   return (
-    typeof id === 'string' &&
-    /^[a-f\d]{24}$/i.test(id) &&
-    mongoose.Types.ObjectId.isValid(id)
+    typeof value === 'string' &&
+    /^[a-f\d]{24}$/i.test(value) &&
+    mongoose.Types.ObjectId.isValid(value)
   );
 }
 
-function normalizeAmount(value) {
-  const amount = Number(value);
-
-  if (!Number.isFinite(amount) || amount < 1) {
-    return null;
-  }
-
-  // M-Pesa STK Push accepts whole-number amounts.
-  return Math.round(amount);
+function getUserId(req) {
+  return req.user?._id || req.user?.id || null;
 }
 
-function serializePayload(payload) {
-  if (payload === undefined || payload === null) {
-    return null;
-  }
+function serialize(value) {
+  if (value === undefined || value === null) return null;
 
   try {
-    return JSON.stringify(payload);
+    return JSON.stringify(value);
   } catch {
     return null;
   }
-}
-
-function getCallbackMetadata(callback) {
-  const items = callback?.CallbackMetadata?.Item || [];
-  const metadata = {};
-
-  if (!Array.isArray(items)) {
-    return metadata;
-  }
-
-  for (const item of items) {
-    if (
-      item &&
-      typeof item.Name === 'string'
-    ) {
-      metadata[item.Name] = item.Value;
-    }
-  }
-
-  return metadata;
-}
-
-function callbackResponse(description = 'Accepted') {
-  return {
-    ResultCode: 0,
-    ResultDesc: description
-  };
-}
-
-function getAuthenticatedUserId(req) {
-  return req.user?._id || req.user?.id || null;
 }
 
 async function logPayment(
@@ -114,200 +65,169 @@ async function logPayment(
       order_id: orderId || null,
       provider: PROVIDER,
       event_type: eventType,
-      request_payload: serializePayload(requestPayload),
-      response_payload: serializePayload(responsePayload),
+      request_payload: serialize(requestPayload),
+      response_payload: serialize(responsePayload),
       status: status || null
     });
   } catch (error) {
-    // Logging failures must not prevent payment processing.
-    logError('Payment logging failed', error);
+    // Logging must never interrupt a payment operation.
+    logError('Payment log write failed', error);
   }
 }
 
-async function markTransactionFailed(
-  transaction,
-  description
-) {
+function callbackAck(res, description = 'Accepted') {
+  return res.status(200).json({
+    ResultCode: 0,
+    ResultDesc: description
+  });
+}
+
+function callbackMetadata(callback) {
+  const items = callback?.CallbackMetadata?.Item;
+
+  if (!Array.isArray(items)) return {};
+
+  return items.reduce((result, item) => {
+    if (item && typeof item.Name === 'string') {
+      result[item.Name] = item.Value;
+    }
+
+    return result;
+  }, {});
+}
+
+function safeMessage(error) {
+  const message = String(error?.message || '');
+
+  // Never return internal configuration or credential details.
+  if (
+    /consumer.?key|consumer.?secret|passkey|access.?token|authorization|bearer/i.test(
+      message
+    )
+  ) {
+    return 'M-Pesa configuration or authentication failed. Please contact support.';
+  }
+
+  return message || 'Unable to process the M-Pesa request.';
+}
+
+async function setTransactionFailure(transaction, message, payload) {
   transaction.status = 'failed';
-  transaction.result_description = description;
+  transaction.result_description = message;
+
+  if (payload !== undefined) {
+    transaction.request_response = payload;
+  }
 
   await transaction.save();
 }
 
-async function acknowledgeCallback(res, description) {
-  return res.status(200).json(
-    callbackResponse(description)
-  );
+async function findActiveTransaction(orderId) {
+  return MpesaTransaction.findOne({
+    order_id: orderId,
+    status: { $in: ACTIVE_STATUSES }
+  }).select('_id status checkout_request_id');
 }
 
-// ============================================================
-// INITIATE M-PESA STK PUSH
-// ============================================================
+// -----------------------------------------------------------------------------
+// INITIATE STK PUSH
+// -----------------------------------------------------------------------------
 
 exports.initiateStk = async (req, res) => {
   let transaction = null;
 
   try {
-    const {
-      order_id,
-      phone
-    } = req.body || {};
-
-    // --------------------------------------------------------
-    // Validate request
-    // --------------------------------------------------------
+    const { order_id, phone } = req.body || {};
 
     if (!isValidObjectId(order_id)) {
-      return sendError(res, 400, 'Invalid order ID');
+      return sendError(res, 400, 'Invalid order ID.');
     }
 
-    if (
-      typeof phone !== 'string' ||
-      !phone.trim()
-    ) {
-      return sendError(
-        res,
-        400,
-        'M-Pesa phone number is required'
-      );
+    if (typeof phone !== 'string' || !phone.trim()) {
+      return sendError(res, 400, 'M-Pesa phone number is required.');
     }
-
-    // --------------------------------------------------------
-    // Find order
-    // --------------------------------------------------------
 
     const order = await Order.findById(order_id);
 
     if (!order) {
-      return sendError(res, 404, 'Order not found');
+      return sendError(res, 404, 'Order not found.');
     }
 
-    if (order.payment_method !== PROVIDER) {
+    if (String(order.payment_method).toLowerCase() !== PROVIDER) {
       return sendError(
         res,
         400,
-        'This order is not set for M-Pesa payment'
+        'This order is not configured for M-Pesa payment.'
       );
     }
 
-    if (order.payment_status === 'paid') {
+    if (String(order.payment_status).toLowerCase() === 'paid') {
+      return sendError(res, 409, 'This order has already been paid.');
+    }
+
+    if (!['pending', 'failed'].includes(
+      String(order.payment_status).toLowerCase()
+    )) {
       return sendError(
         res,
-        400,
-        'This order has already been paid'
+        409,
+        'This order cannot currently accept an M-Pesa payment.'
       );
     }
+
+    const userId = getUserId(req);
 
     if (
-      !['pending', 'failed'].includes(order.payment_status)
-    ) {
-      return sendError(
-        res,
-        400,
-        'This order cannot accept an M-Pesa payment'
-      );
-    }
-
-    // --------------------------------------------------------
-    // Verify ownership
-    // --------------------------------------------------------
-
-    const authenticatedUserId = getAuthenticatedUserId(req);
-
-    if (
-      authenticatedUserId &&
+      userId &&
       order.user_id &&
-      String(order.user_id) !== String(authenticatedUserId)
+      String(order.user_id) !== String(userId)
     ) {
-      return sendError(
-        res,
-        403,
-        'You cannot pay for this order'
-      );
+      return sendError(res, 403, 'You cannot pay for this order.');
     }
-
-    // --------------------------------------------------------
-    // Validate phone number
-    // --------------------------------------------------------
 
     let normalizedPhone;
-    let orderPhone;
+    let savedPhone;
 
     try {
       normalizedPhone = mpesaService.normalizePhone(phone);
-
-      orderPhone = mpesaService.normalizePhone(
-        order.customer_phone
-      );
+      savedPhone = mpesaService.normalizePhone(order.customer_phone);
     } catch {
       return sendError(
         res,
         400,
-        'Invalid phone number. Please check the number and try again.'
+        'Enter a valid Kenyan M-Pesa phone number.'
       );
     }
 
-    if (!normalizedPhone || !orderPhone) {
+    if (normalizedPhone !== savedPhone) {
       return sendError(
         res,
         400,
-        'Invalid M-Pesa phone number'
+        'The M-Pesa number must match the phone number used for this order.'
       );
     }
 
-    if (normalizedPhone !== orderPhone) {
-      return sendError(
-        res,
-        400,
-        'The M-Pesa phone number must match the phone number on the order'
-      );
-    }
-
-    // --------------------------------------------------------
-    // Validate payment amount
-    // --------------------------------------------------------
-
-    const amount = normalizeAmount(order.total_kes);
-
-    if (amount === null) {
-      return sendError(
-        res,
-        400,
-        'Invalid order payment amount'
-      );
-    }
+    const amount = mpesaService.normalizeAmount(order.total_kes);
 
     if (!order.order_number) {
-      return sendError(
-        res,
-        400,
-        'Order reference is missing'
-      );
+      return sendError(res, 400, 'The order reference is missing.');
     }
 
-    // --------------------------------------------------------
-    // Prevent multiple active payment prompts
-    // --------------------------------------------------------
+    const active = await findActiveTransaction(order._id);
 
-    const activeTransaction = await MpesaTransaction.findOne({
-      order_id: order._id,
-      status: {
-        $in: ACTIVE_TRANSACTION_STATUSES
-      }
-    }).select('_id');
-
-    if (activeTransaction) {
+    if (active) {
       return sendError(
         res,
         409,
-        'An M-Pesa payment request is already being processed for this order. Please wait before trying again.'
+        'An M-Pesa request is already active for this order. Check your phone or wait for its result before trying again.',
+        {
+          order_number: order.order_number,
+          checkout_request_id: active.checkout_request_id || null
+        }
       );
     }
 
-    // --------------------------------------------------------
-    // Create transaction record
-    // --------------------------------------------------------
-
+    // Save an initiation record before contacting Safaricom.
     transaction = await MpesaTransaction.create({
       order_id: order._id,
       phone: normalizedPhone,
@@ -328,62 +248,27 @@ exports.initiateStk = async (req, res) => {
       'initiated'
     );
 
-    // --------------------------------------------------------
-    // Send STK Push request
-    // --------------------------------------------------------
-
     const result = await mpesaService.initiateStkPush({
       phone: normalizedPhone,
       amount,
       orderNumber: order.order_number
     });
 
-    const accepted =
-      String(result?.ResponseCode) === '0' &&
-      Boolean(result?.CheckoutRequestID);
-
-    if (!accepted) {
-      const failureMessage =
-        result?.ResponseDescription ||
-        result?.errorMessage ||
-        'Safaricom did not accept the STK request';
-
-      await markTransactionFailed(
-        transaction,
-        failureMessage
-      );
-
-      transaction.request_response = result || null;
-      await transaction.save();
-
-      await logPayment(
-        order._id,
-        'stk_initiation_failed',
-        {
-          phone: normalizedPhone,
-          amount
-        },
-        result,
-        'failed'
-      );
-
-      return sendError(
-        res,
-        400,
-        failureMessage
+    // mpesaService returns camelCase fields.
+    if (
+      result?.success !== true ||
+      String(result.responseCode) !== '0' ||
+      !result.checkoutRequestId ||
+      !result.merchantRequestId
+    ) {
+      throw new Error(
+        result?.responseDescription ||
+        'Safaricom did not accept the STK request.'
       );
     }
 
-    // --------------------------------------------------------
-    // Save Safaricom request identifiers
-    // --------------------------------------------------------
-
-    transaction.merchant_request_id =
-      result.MerchantRequestID || null;
-
-    transaction.checkout_request_id =
-      result.CheckoutRequestID;
-
+    transaction.merchant_request_id = result.merchantRequestId;
+    transaction.checkout_request_id = result.checkoutRequestId;
     transaction.status = 'pending';
     transaction.request_response = result;
 
@@ -391,101 +276,114 @@ exports.initiateStk = async (req, res) => {
 
     await logPayment(
       order._id,
-      'stk_initiation',
+      'stk_initiation_accepted',
       {
         phone: normalizedPhone,
-        amount
+        amount,
+        order_number: order.order_number
       },
       result,
       'pending'
     );
 
-    // --------------------------------------------------------
-    // Respond to customer
-    // --------------------------------------------------------
-
     return res.status(200).json({
       success: true,
       message:
-        result.CustomerMessage ||
-        'M-Pesa payment prompt sent. Enter your M-Pesa PIN on your phone.',
+        result.customerMessage ||
+        'M-Pesa prompt sent. Check your phone and enter your M-Pesa PIN.',
       order_id: String(order._id),
       order_number: order.order_number,
       amount,
       phone: normalizedPhone,
-      checkout_request_id: result.CheckoutRequestID
+      checkout_request_id: result.checkoutRequestId,
+      payment_status: 'pending'
     });
-
   } catch (error) {
     logError('M-Pesa STK initiation', error);
 
     if (transaction) {
       try {
-        transaction.status = 'failed';
-        transaction.result_description =
-          'Unable to complete STK initiation';
+        if (error.uncertain || error.code === 'MPESA_REQUEST_TIMEOUT') {
+          // Safaricom may have received the request even though our
+          // server did not receive its response. Do not invite a duplicate.
+          transaction.status = 'pending';
+          transaction.result_description =
+            'Request outcome is uncertain. Verify transaction status before retrying.';
+          await transaction.save();
 
-        await transaction.save();
+          await logPayment(
+            transaction.order_id,
+            'stk_initiation_uncertain',
+            null,
+            { message: safeMessage(error) },
+            'pending'
+          );
+
+          return sendError(
+            res,
+            202,
+            'The payment request timed out and its status is not yet known. Do not send another prompt yet. Check your phone or contact support.',
+            { payment_status: 'pending' }
+          );
+        }
+
+        await setTransactionFailure(
+          transaction,
+          safeMessage(error),
+          {
+            message: safeMessage(error),
+            provider_code: error.providerCode || null
+          }
+        );
 
         await logPayment(
           transaction.order_id,
-          'stk_initiation_error',
+          'stk_initiation_failed',
           null,
           {
-            message: error.message
+            message: safeMessage(error),
+            provider_code: error.providerCode || null
           },
           'failed'
         );
-
       } catch (saveError) {
-        logError(
-          'Failed to update M-Pesa transaction',
-          saveError
-        );
+        logError('Could not update failed STK transaction', saveError);
       }
     }
 
+    const status = Number(error.statusCode);
+
     return sendError(
       res,
-      500,
-      'Unable to initiate M-Pesa payment. Please try again.'
+      status >= 400 && status < 500 ? status : 502,
+      safeMessage(error)
     );
   }
 };
 
-// ============================================================
-// PROCESS M-PESA STK CALLBACK
-// ============================================================
+// -----------------------------------------------------------------------------
+// PROCESS SAFARICOM CALLBACK
+// -----------------------------------------------------------------------------
 
 exports.callback = async (req, res) => {
-  try {
-    // --------------------------------------------------------
-    // Validate callback structure
-    // --------------------------------------------------------
+  const callback = req.body?.Body?.stkCallback;
 
-    const callback = req.body?.Body?.stkCallback;
-
-    if (
-      !callback ||
-      !callback.CheckoutRequestID ||
-      callback.ResultCode === undefined
-    ) {
-      logError(
-        'M-Pesa callback',
-        new Error('Invalid callback payload received')
-      );
-
-      return acknowledgeCallback(res);
-    }
-
-    const checkoutRequestId = String(
-      callback.CheckoutRequestID
+  if (
+    !callback ||
+    !callback.CheckoutRequestID ||
+    callback.ResultCode === undefined
+  ) {
+    logError(
+      'M-Pesa callback',
+      new Error('Invalid callback structure received.')
     );
 
-    // --------------------------------------------------------
-    // Find original transaction
-    // --------------------------------------------------------
+    return callbackAck(res, 'Invalid callback received');
+  }
 
+  const checkoutRequestId = String(callback.CheckoutRequestID);
+
+  try {
     const transaction = await MpesaTransaction.findOne({
       checkout_request_id: checkoutRequestId
     });
@@ -493,62 +391,41 @@ exports.callback = async (req, res) => {
     if (!transaction) {
       logError(
         'M-Pesa callback',
-        new Error(`Unknown checkout request: ${checkoutRequestId}`)
+        new Error(`Unknown CheckoutRequestID: ${checkoutRequestId}`)
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Transaction not found');
     }
 
-    // --------------------------------------------------------
-    // Protect against duplicate successful callbacks
-    // --------------------------------------------------------
-
+    // Safaricom may send the same callback more than once.
     if (transaction.status === 'success') {
-      return acknowledgeCallback(
-        res,
-        'Payment already processed'
-      );
+      return callbackAck(res, 'Payment already processed');
     }
-
-    transaction.callback_payload = req.body;
-    transaction.result_code = callback.ResultCode;
-    transaction.result_description =
-      callback.ResultDesc || null;
 
     const resultCode = Number(callback.ResultCode);
 
-    // --------------------------------------------------------
-    // Process unsuccessful payment
-    // --------------------------------------------------------
+    transaction.callback_payload = req.body;
+    transaction.result_code = resultCode;
+    transaction.result_description = callback.ResultDesc || null;
 
     if (resultCode !== 0) {
       transaction.status = 'failed';
-
       await transaction.save();
 
-      // Only mark the order failed when no other payment
-      // request is still active.
-      const anotherPendingTransaction =
-        await MpesaTransaction.exists({
-          order_id: transaction.order_id,
-          status: {
-            $in: ACTIVE_TRANSACTION_STATUSES
-          },
-          _id: {
-            $ne: transaction._id
-          }
-        });
+      const anotherActive = await MpesaTransaction.exists({
+        order_id: transaction.order_id,
+        status: { $in: ACTIVE_STATUSES },
+        _id: { $ne: transaction._id }
+      });
 
-      if (!anotherPendingTransaction) {
+      if (!anotherActive) {
         await Order.updateOne(
           {
             _id: transaction.order_id,
             payment_status: 'pending'
           },
           {
-            $set: {
-              payment_status: 'failed'
-            }
+            $set: { payment_status: 'failed' }
           }
         );
       }
@@ -561,21 +438,12 @@ exports.callback = async (req, res) => {
         'failed'
       );
 
-      console.log(
-        'M-Pesa payment failed:',
-        callback.ResultDesc || 'Payment unsuccessful'
-      );
-
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Payment was not completed');
     }
 
-    // --------------------------------------------------------
-    // Extract payment metadata
-    // --------------------------------------------------------
+    const metadata = callbackMetadata(callback);
 
-    const metadata = getCallbackMetadata(callback);
-
-    const receipt = metadata.MpesaReceiptNumber;
+    const receipt = String(metadata.MpesaReceiptNumber || '').trim();
     const paidAmount = Number(metadata.Amount);
 
     let paidPhone = null;
@@ -590,38 +458,32 @@ exports.callback = async (req, res) => {
       paidPhone = null;
     }
 
-    // --------------------------------------------------------
-    // Validate payment details
-    // --------------------------------------------------------
-
     if (
-      typeof receipt !== 'string' ||
-      !receipt.trim() ||
-      !Number.isFinite(paidAmount) ||
-      paidAmount <= 0 ||
+      !receipt ||
+      !Number.isSafeInteger(paidAmount) ||
+      paidAmount < 1 ||
       !paidPhone
     ) {
-      await markTransactionFailed(
-        transaction,
-        'Payment callback is missing valid payment details'
-      );
+      transaction.status = 'failed';
+      transaction.result_description =
+        'Successful callback did not contain valid payment details.';
+      await transaction.save();
 
       await logPayment(
         transaction.order_id,
-        'stk_callback_invalid',
+        'stk_callback_invalid_metadata',
         null,
         req.body,
         'failed'
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Invalid payment metadata');
     }
 
     if (paidAmount !== Number(transaction.amount_kes)) {
-      await markTransactionFailed(
-        transaction,
-        'Callback amount does not match the requested amount'
-      );
+      transaction.status = 'failed';
+      transaction.result_description = 'Payment amount mismatch.';
+      await transaction.save();
 
       await logPayment(
         transaction.order_id,
@@ -631,14 +493,13 @@ exports.callback = async (req, res) => {
         'failed'
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Payment amount mismatch');
     }
 
     if (paidPhone !== transaction.phone) {
-      await markTransactionFailed(
-        transaction,
-        'Callback phone number does not match the requested phone number'
-      );
+      transaction.status = 'failed';
+      transaction.result_description = 'Payment phone number mismatch.';
+      await transaction.save();
 
       await logPayment(
         transaction.order_id,
@@ -648,54 +509,38 @@ exports.callback = async (req, res) => {
         'failed'
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Payment phone mismatch');
     }
 
-    // --------------------------------------------------------
-    // Prevent reuse of an already recorded M-Pesa receipt
-    // --------------------------------------------------------
-
-    const existingReceipt = await MpesaTransaction.findOne({
+    const duplicateReceipt = await MpesaTransaction.findOne({
       mpesa_receipt: receipt,
       status: 'success',
-      _id: {
-        $ne: transaction._id
-      }
+      _id: { $ne: transaction._id }
     }).select('_id');
 
-    if (existingReceipt) {
-      await markTransactionFailed(
-        transaction,
-        'This M-Pesa receipt has already been used'
-      );
+    if (duplicateReceipt) {
+      transaction.status = 'failed';
+      transaction.result_description =
+        'This M-Pesa receipt has already been recorded.';
+      await transaction.save();
 
       await logPayment(
         transaction.order_id,
         'stk_callback_duplicate_receipt',
         null,
-        {
-          receipt,
-          checkout_request_id: checkoutRequestId
-        },
+        { receipt, checkout_request_id: checkoutRequestId },
         'failed'
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Duplicate receipt');
     }
 
-    // --------------------------------------------------------
-    // Validate associated order
-    // --------------------------------------------------------
-
-    const order = await Order.findById(
-      transaction.order_id
-    );
+    const order = await Order.findById(transaction.order_id);
 
     if (!order) {
-      await markTransactionFailed(
-        transaction,
-        'Associated order was not found'
-      );
+      transaction.status = 'failed';
+      transaction.result_description = 'Associated order not found.';
+      await transaction.save();
 
       await logPayment(
         transaction.order_id,
@@ -705,20 +550,19 @@ exports.callback = async (req, res) => {
         'failed'
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Order not found');
     }
 
-    const orderAmount = normalizeAmount(order.total_kes);
+    const orderAmount = mpesaService.normalizeAmount(order.total_kes);
 
     if (
-      order.payment_method !== 'mpesa' ||
-      orderAmount === null ||
+      String(order.payment_method).toLowerCase() !== PROVIDER ||
       orderAmount !== Number(transaction.amount_kes)
     ) {
-      await markTransactionFailed(
-        transaction,
-        'Order payment validation failed'
-      );
+      transaction.status = 'failed';
+      transaction.result_description =
+        'Order payment details do not match the callback.';
+      await transaction.save();
 
       await logPayment(
         transaction.order_id,
@@ -728,21 +572,33 @@ exports.callback = async (req, res) => {
         'failed'
       );
 
-      return acknowledgeCallback(res);
+      return callbackAck(res, 'Order validation failed');
     }
 
-    // --------------------------------------------------------
-    // Mark order as paid
-    // --------------------------------------------------------
+    // Do not overwrite a different completed payment.
+    if (String(order.payment_status).toLowerCase() === 'paid') {
+      transaction.status = 'failed';
+      transaction.result_description =
+        'Order was already marked paid by another transaction.';
+      await transaction.save();
+
+      return callbackAck(res, 'Order already paid');
+    }
+
+    // This call is retained from your existing controller contract.
+    // orderController.markPaid must be an exported helper accepting
+    // (orderId, paymentDetails), not an Express route handler.
+    if (typeof orderController.markPaid !== 'function') {
+      throw new Error(
+        'orderController.markPaid is not exported as a payment helper.'
+      );
+    }
 
     await orderController.markPaid(order._id, {
       mpesa_receipt: receipt,
-      payment_reference: checkoutRequestId
+      payment_reference: checkoutRequestId,
+      payment_method: PROVIDER
     });
-
-    // --------------------------------------------------------
-    // Update successful transaction
-    // --------------------------------------------------------
 
     transaction.status = 'success';
     transaction.mpesa_receipt = receipt;
@@ -765,17 +621,29 @@ exports.callback = async (req, res) => {
       'success'
     );
 
-    console.log(
-      'M-Pesa payment confirmed:',
+    console.info(
+      '[M-Pesa] Payment confirmed:',
       order.order_number,
       receipt
     );
 
+    return callbackAck(res, 'Payment processed successfully');
   } catch (error) {
+    // Daraja expects an acknowledgement. Failed internal processing
+    // must be logged and reconciled; it must not be treated as paid.
     logError('M-Pesa callback processing', error);
-  }
 
-  // Safaricom expects an acknowledgement.
-  // Failed internal processing is logged for investigation.
-  return acknowledgeCallback(res);
+    await logPayment(
+      null,
+      'stk_callback_processing_error',
+      null,
+      {
+        checkout_request_id: checkoutRequestId,
+        message: safeMessage(error)
+      },
+      'error'
+    );
+
+    return callbackAck(res, 'Callback received; processing requires review');
+  }
 };
