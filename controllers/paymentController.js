@@ -1,4 +1,3 @@
-
 'use strict';
 
 const mongoose = require('mongoose');
@@ -25,10 +24,19 @@ const PAYMENT_STATUSES = Object.freeze({
 });
 
 const ORDER_CANCELLED = 'cancelled';
+
 const MPESA_SETUP_URL = 'https://developer.safaricom.co.ke/';
 
 const MAX_LOG_LENGTH = 15000;
 const MAX_PHONE_LENGTH = 20;
+const MAX_REFERENCE_LENGTH = 120;
+
+// Only these roles can perform administrative payment actions.
+// The owner role is used by this application's authentication middleware.
+const ADMIN_ROLES = new Set([
+  'owner',
+  'admin'
+]);
 
 // =============================================================================
 // RESPONSE HELPERS
@@ -61,7 +69,9 @@ function serverError(res, message, err) {
 // =============================================================================
 
 function normalizeString(value) {
-  return typeof value === 'string' ? value.trim() : '';
+  return typeof value === 'string'
+    ? value.trim()
+    : '';
 }
 
 function isValidObjectId(value) {
@@ -79,8 +89,14 @@ function isAuthenticated(req) {
   return Boolean(getUserId(req));
 }
 
+function getUserRole(req) {
+  return String(req.user?.role || '')
+    .trim()
+    .toLowerCase();
+}
+
 function isAdmin(req) {
-  return String(req.user?.role || '').trim().toLowerCase() === 'admin';
+  return ADMIN_ROLES.has(getUserRole(req));
 }
 
 function isPendingOrder(order) {
@@ -107,7 +123,7 @@ function isPendingOrder(order) {
  * +254712345678
  * +254112345678
  *
- * Returns international format without +.
+ * Returns international format without the + sign.
  */
 function normalizePhone(value) {
   if (
@@ -136,13 +152,17 @@ function normalizePhone(value) {
     phone = `254${phone}`;
   }
 
-  return /^254[17]\d{8}$/.test(phone) ? phone : null;
+  return /^254[17]\d{8}$/.test(phone)
+    ? phone
+    : null;
 }
 
 function maskPhone(value) {
   const phone = normalizePhone(value);
 
-  if (!phone) return '***';
+  if (!phone) {
+    return '***';
+  }
 
   return `${phone.slice(0, 5)}****${phone.slice(-2)}`;
 }
@@ -151,6 +171,11 @@ function maskPhone(value) {
 // AMOUNT HELPERS
 // =============================================================================
 
+/**
+ * Payment amounts are stored and processed as whole Kenyan shillings.
+ *
+ * Zero, negative, non-numeric and unsafe amounts are rejected.
+ */
 function normalizeAmount(value) {
   if (
     value === null ||
@@ -187,7 +212,17 @@ const SENSITIVE_KEYS = new Set([
   'passkey',
   'authorization',
   'api_key',
-  'secret'
+  'apikey',
+  'secret',
+  'signature'
+]);
+
+const PHONE_KEYS = new Set([
+  'phone',
+  'phonenumber',
+  'msisdn',
+  'customer_phone',
+  'callback_phone'
 ]);
 
 function sanitizeLogPayload(value, depth = 0) {
@@ -219,20 +254,15 @@ function sanitizeLogPayload(value, depth = 0) {
       continue;
     }
 
-    if (
-      [
-        'phone',
-        'phonenumber',
-        'msisdn',
-        'customer_phone',
-        'callback_phone'
-      ].includes(normalizedKey)
-    ) {
+    if (PHONE_KEYS.has(normalizedKey)) {
       sanitized[key] = maskPhone(item);
       continue;
     }
 
-    sanitized[key] = sanitizeLogPayload(item, depth + 1);
+    sanitized[key] = sanitizeLogPayload(
+      item,
+      depth + 1
+    );
   }
 
   return sanitized;
@@ -246,7 +276,9 @@ function serializeLogPayload(value) {
   let serialized;
 
   try {
-    serialized = JSON.stringify(sanitizeLogPayload(value));
+    serialized = JSON.stringify(
+      sanitizeLogPayload(value)
+    );
   } catch (err) {
     serialized = JSON.stringify({
       message: 'Unable to serialize payment payload.'
@@ -286,7 +318,11 @@ async function logPaymentSafely(...args) {
   try {
     return await logPayment(...args);
   } catch (err) {
-    console.error('Payment audit logging failed:', err.message);
+    console.error(
+      'Payment audit logging failed:',
+      err.message
+    );
+
     return null;
   }
 }
@@ -303,19 +339,37 @@ async function findOrder(orderId) {
   return Order.findById(orderId);
 }
 
-function canAccessPaymentOrder(req, order, suppliedPhone = null) {
-  if (!order) return false;
+function canAccessPaymentOrder(
+  req,
+  order,
+  suppliedPhone = null
+) {
+  if (!order) {
+    return false;
+  }
 
-  if (isAdmin(req)) return true;
+  // Owner and legacy admin can access payment records.
+  if (isAdmin(req)) {
+    return true;
+  }
 
   const userId = getUserId(req);
 
+  // Authenticated customers can only access their own orders.
   if (userId) {
-    return String(order.user_id || '') === String(userId);
+    return (
+      String(order.user_id || '') === String(userId)
+    );
   }
 
-  const storedPhone = normalizePhone(order.customer_phone);
-  const submittedPhone = normalizePhone(suppliedPhone);
+  // Guest customers must provide the matching order phone.
+  const storedPhone = normalizePhone(
+    order.customer_phone
+  );
+
+  const submittedPhone = normalizePhone(
+    suppliedPhone
+  );
 
   return Boolean(
     storedPhone &&
@@ -367,7 +421,8 @@ function validateOrderPayment(order, provider) {
     return {
       valid: false,
       status: 400,
-      message: 'The order has an invalid payment amount.'
+      message:
+        'The order has an invalid payment amount. Please contact the shop administrator.'
     };
   }
 
@@ -383,11 +438,15 @@ function validateOrderPayment(order, provider) {
 
 function isMpesaConfigured() {
   try {
-    if (!mpesaService || typeof mpesaService.getConfig !== 'function') {
+    if (
+      !mpesaService ||
+      typeof mpesaService.getConfig !== 'function'
+    ) {
       return false;
     }
 
     mpesaService.getConfig();
+
     return true;
   } catch (err) {
     return false;
@@ -399,6 +458,19 @@ function isCardConfigured() {
     process.env.PESAPAL_CONSUMER_KEY &&
     process.env.PESAPAL_CONSUMER_SECRET
   );
+}
+
+function getMpesaConfigurationResponse(order) {
+  return {
+    success: false,
+    error: 'M-Pesa is not configured.',
+    message:
+      'Check your Daraja credentials, environment settings and callback URL.',
+    order_id: String(order._id),
+    order_number: order.order_number,
+    amount: normalizeAmount(order.total_kes),
+    setup_guide: MPESA_SETUP_URL
+  };
 }
 
 // =============================================================================
@@ -413,14 +485,15 @@ function isCardConfigured() {
  *   "order_id": "...",
  *   "phone": "0712345678"
  * }
- *
- * Supports both 07 and 01 Kenyan mobile numbers.
  */
 exports.mpesaStkPush = async (req, res) => {
   let order = null;
 
   try {
-    const orderId = normalizeString(req.body?.order_id);
+    const orderId = normalizeString(
+      req.body?.order_id
+    );
+
     const submittedPhone = req.body?.phone;
 
     if (!orderId || !submittedPhone) {
@@ -432,13 +505,21 @@ exports.mpesaStkPush = async (req, res) => {
     }
 
     if (!isValidObjectId(orderId)) {
-      return errorResponse(res, 400, 'Invalid order ID.');
+      return errorResponse(
+        res,
+        400,
+        'Invalid order ID.'
+      );
     }
 
     order = await findOrder(orderId);
 
     if (!order) {
-      return errorResponse(res, 404, 'Order not found.');
+      return errorResponse(
+        res,
+        404,
+        'Order not found.'
+      );
     }
 
     const phone = normalizePhone(submittedPhone);
@@ -451,7 +532,11 @@ exports.mpesaStkPush = async (req, res) => {
       );
     }
 
-    if (!canAccessPaymentOrder(req, order, submittedPhone)) {
+    if (!canAccessPaymentOrder(
+      req,
+      order,
+      submittedPhone
+    )) {
       return errorResponse(
         res,
         403,
@@ -483,21 +568,20 @@ exports.mpesaStkPush = async (req, res) => {
           amount: eligibility.amount
         },
         {
-          message: 'M-Pesa service configuration is invalid.'
+          message:
+            'M-Pesa service configuration is invalid.'
         },
         'not_configured'
       );
 
-      return res.status(503).json({
-        ...getMpesaConfigurationResponse(order)
-      });
+      return res.status(503).json(
+        getMpesaConfigurationResponse(order)
+      );
     }
 
-    /**
-     * A previous request may have reached Safaricom even if the
-     * customer's browser did not receive the response.
-     *
-     * Do not blindly send another STK prompt.
+    /*
+     * Prevent another STK request when an earlier request
+     * already has a checkout reference.
      */
     if (order.mpesa_checkout_request_id) {
       return errorResponse(
@@ -514,7 +598,7 @@ exports.mpesaStkPush = async (req, res) => {
     }
 
     // -------------------------------------------------------------------------
-    // REAL DARAJA REQUEST
+    // INITIATE REAL DARAJA REQUEST
     // -------------------------------------------------------------------------
 
     const result = await mpesaService.initiateStkPush({
@@ -542,10 +626,11 @@ exports.mpesaStkPush = async (req, res) => {
     try {
       await order.save();
     } catch (saveError) {
-      /**
-       * The gateway may already have sent the prompt.
-       * Never automatically send another prompt here.
+      /*
+       * Safaricom may already have sent the prompt.
+       * Do not automatically initiate another request.
        */
+
       await logPaymentSafely(
         order._id,
         PROVIDERS.MPESA,
@@ -555,8 +640,10 @@ exports.mpesaStkPush = async (req, res) => {
           amount: eligibility.amount
         },
         {
-          checkout_request_id: result.checkoutRequestId,
-          merchant_request_id: result.merchantRequestId,
+          checkout_request_id:
+            result.checkoutRequestId,
+          merchant_request_id:
+            result.merchantRequestId,
           error: saveError.message
         },
         'reconciliation_required'
@@ -593,8 +680,10 @@ exports.mpesaStkPush = async (req, res) => {
         order_number: order.order_number
       },
       {
-        checkout_request_id: result.checkoutRequestId,
-        merchant_request_id: result.merchantRequestId,
+        checkout_request_id:
+          result.checkoutRequestId,
+        merchant_request_id:
+          result.merchantRequestId,
         response_code: result.responseCode
       },
       'pending'
@@ -608,7 +697,8 @@ exports.mpesaStkPush = async (req, res) => {
       {
         order_id: String(order._id),
         order_number: order.order_number,
-        checkout_request_id: result.checkoutRequestId,
+        checkout_request_id:
+          result.checkoutRequestId,
         amount: eligibility.amount,
         phone: maskPhone(phone),
         payment_status: PAYMENT_STATUSES.PENDING
@@ -640,19 +730,6 @@ exports.mpesaStkPush = async (req, res) => {
   }
 };
 
-function getMpesaConfigurationResponse(order) {
-  return {
-    success: false,
-    error: 'M-Pesa is not configured.',
-    message:
-      'Check your Daraja credentials, environment settings and callback URL.',
-    order_id: String(order._id),
-    order_number: order.order_number,
-    amount: normalizeAmount(order.total_kes),
-    setup_guide: MPESA_SETUP_URL
-  };
-}
-
 // =============================================================================
 // M-PESA CALLBACK HELPERS
 // =============================================================================
@@ -660,18 +737,25 @@ function getMpesaConfigurationResponse(order) {
 function getCallbackMetadata(callback) {
   const items = callback?.CallbackMetadata?.Item;
 
-  return Array.isArray(items) ? items : [];
+  return Array.isArray(items)
+    ? items
+    : [];
 }
 
 function getMetadataValue(metadata, name) {
-  const item = metadata.find(entry => entry?.Name === name);
+  const item = metadata.find(
+    entry => entry?.Name === name
+  );
+
   return item?.Value ?? null;
 }
 
 function extractMpesaCallback(body) {
   const callback = body?.Body?.stkCallback;
 
-  if (!callback) return null;
+  if (!callback) {
+    return null;
+  }
 
   const rawResultCode = callback.ResultCode;
   const resultCode = Number(rawResultCode);
@@ -689,15 +773,25 @@ function extractMpesaCallback(body) {
   return {
     resultCode,
     resultDescription: callback.ResultDesc || '',
-    checkoutRequestId: callback.CheckoutRequestID || null,
-    merchantRequestId: callback.MerchantRequestID || null,
+    checkoutRequestId:
+      callback.CheckoutRequestID || null,
+    merchantRequestId:
+      callback.MerchantRequestID || null,
     amount: getMetadataValue(metadata, 'Amount'),
-    receipt: getMetadataValue(metadata, 'MpesaReceiptNumber'),
-    phone: getMetadataValue(metadata, 'PhoneNumber')
+    receipt: getMetadataValue(
+      metadata,
+      'MpesaReceiptNumber'
+    ),
+    phone: getMetadataValue(
+      metadata,
+      'PhoneNumber'
+    )
   };
 }
 
-async function findOrderByCheckoutRequestId(checkoutRequestId) {
+async function findOrderByCheckoutRequestId(
+  checkoutRequestId
+) {
   if (
     typeof checkoutRequestId !== 'string' ||
     !checkoutRequestId.trim()
@@ -707,12 +801,15 @@ async function findOrderByCheckoutRequestId(checkoutRequestId) {
 
   return Order.findOne({
     payment_method: PROVIDERS.MPESA,
-    mpesa_checkout_request_id: checkoutRequestId.trim()
+    mpesa_checkout_request_id:
+      checkoutRequestId.trim()
   });
 }
 
 async function receiptAlreadyUsed(receipt, orderId) {
-  if (!receipt) return false;
+  if (!receipt) {
+    return false;
+  }
 
   return Boolean(
     await Order.exists({
@@ -736,8 +833,8 @@ function acknowledgeMpesaCallback(res) {
 /**
  * POST /api/payments/mpesa/callback
  *
- * Never mark an order paid from the browser.
- * Only the server-side payment callback can initiate confirmation.
+ * A browser request must never mark an order as paid.
+ * Payment confirmation is handled server-side.
  */
 exports.mpesaCallback = async (req, res) => {
   const body = req.body || {};
@@ -761,7 +858,8 @@ exports.mpesaCallback = async (req, res) => {
         'callback_invalid',
         body,
         {
-          message: 'Invalid M-Pesa callback structure.'
+          message:
+            'Invalid M-Pesa callback structure.'
         },
         'invalid'
       );
@@ -783,7 +881,8 @@ exports.mpesaCallback = async (req, res) => {
         PROVIDERS.MPESA,
         'callback_order_not_found',
         {
-          checkout_request_id: data.checkoutRequestId
+          checkout_request_id:
+            data.checkoutRequestId
         },
         {
           result_code: data.resultCode,
@@ -805,12 +904,15 @@ exports.mpesaCallback = async (req, res) => {
         PROVIDERS.MPESA,
         'payment_failed',
         {
-          checkout_request_id: data.checkoutRequestId,
-          merchant_request_id: data.merchantRequestId
+          checkout_request_id:
+            data.checkoutRequestId,
+          merchant_request_id:
+            data.merchantRequestId
         },
         {
           result_code: data.resultCode,
-          result_description: data.resultDescription
+          result_description:
+            data.resultDescription
         },
         'failed'
       );
@@ -822,16 +924,21 @@ exports.mpesaCallback = async (req, res) => {
     // SUCCESS CALLBACK VALIDATION
     // -------------------------------------------------------------------------
 
-    if (!data.receipt || !data.checkoutRequestId) {
+    if (
+      !data.receipt ||
+      !data.checkoutRequestId
+    ) {
       await logPaymentSafely(
         order._id,
         PROVIDERS.MPESA,
         'callback_invalid_success',
         {
-          checkout_request_id: data.checkoutRequestId
+          checkout_request_id:
+            data.checkoutRequestId
         },
         {
-          message: 'Successful callback is missing payment identifiers.'
+          message:
+            'Successful callback is missing payment identifiers.'
         },
         'invalid'
       );
@@ -839,8 +946,13 @@ exports.mpesaCallback = async (req, res) => {
       return acknowledgeMpesaCallback(res);
     }
 
-    const callbackAmount = normalizeAmount(data.amount);
-    const expectedAmount = normalizeAmount(order.total_kes);
+    const callbackAmount = normalizeAmount(
+      data.amount
+    );
+
+    const expectedAmount = normalizeAmount(
+      order.total_kes
+    );
 
     if (
       !callbackAmount ||
@@ -852,7 +964,8 @@ exports.mpesaCallback = async (req, res) => {
         PROVIDERS.MPESA,
         'callback_amount_mismatch',
         {
-          checkout_request_id: data.checkoutRequestId
+          checkout_request_id:
+            data.checkoutRequestId
         },
         {
           expected_amount: expectedAmount,
@@ -869,13 +982,16 @@ exports.mpesaCallback = async (req, res) => {
     // DUPLICATE PAYMENT PROTECTION
     // -------------------------------------------------------------------------
 
-    if (order.payment_status === PAYMENT_STATUSES.PAID) {
+    if (
+      order.payment_status === PAYMENT_STATUSES.PAID
+    ) {
       await logPaymentSafely(
         order._id,
         PROVIDERS.MPESA,
         'duplicate_callback',
         {
-          checkout_request_id: data.checkoutRequestId
+          checkout_request_id:
+            data.checkoutRequestId
         },
         {
           receipt: data.receipt
@@ -892,7 +1008,8 @@ exports.mpesaCallback = async (req, res) => {
         PROVIDERS.MPESA,
         'callback_order_not_payable',
         {
-          checkout_request_id: data.checkoutRequestId
+          checkout_request_id:
+            data.checkoutRequestId
         },
         {
           payment_status: order.payment_status,
@@ -910,13 +1027,17 @@ exports.mpesaCallback = async (req, res) => {
 
     const receipt = String(data.receipt).trim();
 
-    if (await receiptAlreadyUsed(receipt, order._id)) {
+    if (await receiptAlreadyUsed(
+      receipt,
+      order._id
+    )) {
       await logPaymentSafely(
         order._id,
         PROVIDERS.MPESA,
         'duplicate_receipt',
         {
-          checkout_request_id: data.checkoutRequestId
+          checkout_request_id:
+            data.checkoutRequestId
         },
         {
           receipt
@@ -931,9 +1052,17 @@ exports.mpesaCallback = async (req, res) => {
     // CALLBACK PHONE VALIDATION
     // -------------------------------------------------------------------------
 
-    if (data.phone !== null && data.phone !== undefined) {
-      const callbackPhone = normalizePhone(data.phone);
-      const orderPhone = normalizePhone(order.customer_phone);
+    if (
+      data.phone !== null &&
+      data.phone !== undefined
+    ) {
+      const callbackPhone = normalizePhone(
+        data.phone
+      );
+
+      const orderPhone = normalizePhone(
+        order.customer_phone
+      );
 
       if (
         !callbackPhone ||
@@ -945,11 +1074,14 @@ exports.mpesaCallback = async (req, res) => {
           PROVIDERS.MPESA,
           'callback_phone_mismatch',
           {
-            checkout_request_id: data.checkoutRequestId
+            checkout_request_id:
+              data.checkoutRequestId
           },
           {
             callback_phone: maskPhone(data.phone),
-            order_phone: maskPhone(order.customer_phone)
+            order_phone: maskPhone(
+              order.customer_phone
+            )
           },
           'mismatch'
         );
@@ -966,12 +1098,15 @@ exports.mpesaCallback = async (req, res) => {
       order._id,
       {
         mpesa_receipt: receipt,
-        payment_reference: String(data.checkoutRequestId)
+        payment_reference:
+          String(data.checkoutRequestId)
       }
     );
 
     if (!updatedOrder) {
-      throw new Error('Unable to confirm the paid order.');
+      throw new Error(
+        'Unable to confirm the paid order.'
+      );
     }
 
     await logPaymentSafely(
@@ -979,7 +1114,8 @@ exports.mpesaCallback = async (req, res) => {
       PROVIDERS.MPESA,
       'payment_success',
       {
-        checkout_request_id: data.checkoutRequestId
+        checkout_request_id:
+          data.checkoutRequestId
       },
       {
         receipt,
@@ -990,7 +1126,10 @@ exports.mpesaCallback = async (req, res) => {
 
     return acknowledgeMpesaCallback(res);
   } catch (err) {
-    console.error('M-Pesa callback processing error:', err);
+    console.error(
+      'M-Pesa callback processing error:',
+      err
+    );
 
     await logPaymentSafely(
       null,
@@ -1003,25 +1142,13 @@ exports.mpesaCallback = async (req, res) => {
       'error'
     );
 
-    /**
-     * The callback has been received, but internal processing failed.
-     * Monitor these records and reconcile transactions that were not
-     * successfully confirmed.
+    /*
+     * Safaricom receives an acknowledgement, but this internal
+     * processing error must be investigated and reconciled.
      */
     return acknowledgeMpesaCallback(res);
   }
 };
-
-// =============================================================================
-// PESAPAL CONFIGURATION
-// =============================================================================
-
-function isCardConfigured() {
-  return Boolean(
-    process.env.PESAPAL_CONSUMER_KEY &&
-    process.env.PESAPAL_CONSUMER_SECRET
-  );
-}
 
 // =============================================================================
 // CARD PAYMENT INITIATION
@@ -1030,27 +1157,47 @@ function isCardConfigured() {
 /**
  * POST /api/payments/card/initiate
  *
- * Pesapal integration is intentionally not implemented here.
+ * Pesapal integration is not implemented in this controller.
+ * Do not accept card payments until the actual gateway integration
+ * and callback verification are implemented.
  */
 exports.cardInitiate = async (req, res) => {
   try {
-    const orderId = normalizeString(req.body?.order_id);
+    const orderId = normalizeString(
+      req.body?.order_id
+    );
 
     if (!orderId) {
-      return errorResponse(res, 400, 'Order ID is required.');
+      return errorResponse(
+        res,
+        400,
+        'Order ID is required.'
+      );
     }
 
     if (!isValidObjectId(orderId)) {
-      return errorResponse(res, 400, 'Invalid order ID.');
+      return errorResponse(
+        res,
+        400,
+        'Invalid order ID.'
+      );
     }
 
     const order = await findOrder(orderId);
 
     if (!order) {
-      return errorResponse(res, 404, 'Order not found.');
+      return errorResponse(
+        res,
+        404,
+        'Order not found.'
+      );
     }
 
-    if (!canAccessPaymentOrder(req, order, req.body?.phone)) {
+    if (!canAccessPaymentOrder(
+      req,
+      order,
+      req.body?.phone
+    )) {
       return errorResponse(
         res,
         403,
@@ -1081,7 +1228,8 @@ exports.cardInitiate = async (req, res) => {
           amount: eligibility.amount
         },
         {
-          message: 'Pesapal credentials are missing.'
+          message:
+            'Pesapal credentials are missing.'
         },
         'not_configured'
       );
@@ -1129,7 +1277,7 @@ exports.cardInitiate = async (req, res) => {
 };
 
 // =============================================================================
-// PESAPAL CALLBACK
+// CARD PAYMENT CALLBACK
 // =============================================================================
 
 exports.cardCallback = async (req, res) => {
@@ -1161,14 +1309,22 @@ exports.cardCallback = async (req, res) => {
 };
 
 // =============================================================================
-// ADMIN MANUAL PAYMENT CONFIRMATION
+// ADMINISTRATIVE MANUAL PAYMENT CONFIRMATION
 // =============================================================================
 
 /**
- * POST /api/admin/orders/:id/mark-paid
+ * POST /api/payments/admin/mark-paid/:id
  *
- * Only administrators can use this endpoint.
- * Payment must be independently verified first.
+ * Owner/admin only.
+ *
+ * Body example:
+ * {
+ *   "payment_reference": "BANK-TRANSFER-123456",
+ *   "mpesa_receipt": "QWE12345678"
+ * }
+ *
+ * The administrator must independently verify that the money
+ * was actually received before using this endpoint.
  */
 exports.adminMarkPaid = async (req, res) => {
   try {
@@ -1184,23 +1340,35 @@ exports.adminMarkPaid = async (req, res) => {
       return errorResponse(
         res,
         403,
-        'Administrator access required.'
+        'Owner or administrator access required.'
       );
     }
 
-    const orderId = normalizeString(req.params?.id);
+    const orderId = normalizeString(
+      req.params?.id
+    );
 
     if (!isValidObjectId(orderId)) {
-      return errorResponse(res, 400, 'Invalid order ID.');
+      return errorResponse(
+        res,
+        400,
+        'Invalid order ID.'
+      );
     }
 
     const order = await Order.findById(orderId);
 
     if (!order) {
-      return errorResponse(res, 404, 'Order not found.');
+      return errorResponse(
+        res,
+        404,
+        'Order not found.'
+      );
     }
 
-    if (order.payment_status === PAYMENT_STATUSES.PAID) {
+    if (
+      order.payment_status === PAYMENT_STATUSES.PAID
+    ) {
       return errorResponse(
         res,
         409,
@@ -1216,28 +1384,70 @@ exports.adminMarkPaid = async (req, res) => {
       );
     }
 
-    const receipt = normalizeString(req.body?.mpesa_receipt);
-    const reference = normalizeString(req.body?.payment_reference);
+    const amount = normalizeAmount(order.total_kes);
 
-    if (
-      receipt &&
-      await receiptAlreadyUsed(receipt, order._id)
-    ) {
+    if (!amount) {
       return errorResponse(
         res,
-        409,
-        'This M-Pesa receipt has already been used for another order.'
+        400,
+        'This order has an invalid payment amount. Correct the order total before confirming payment.'
       );
     }
 
-    const paymentReference =
-      reference || `manual-${Date.now()}`;
+    const receipt = normalizeString(
+      req.body?.mpesa_receipt
+    );
+
+    const reference = normalizeString(
+      req.body?.payment_reference
+    );
+
+    if (!reference) {
+      return errorResponse(
+        res,
+        400,
+        'A verified payment reference is required.'
+      );
+    }
+
+    if (reference.length > MAX_REFERENCE_LENGTH) {
+      return errorResponse(
+        res,
+        400,
+        'Payment reference is too long.'
+      );
+    }
+
+    if (receipt) {
+      if (receipt.length > MAX_REFERENCE_LENGTH) {
+        return errorResponse(
+          res,
+          400,
+          'M-Pesa receipt is too long.'
+        );
+      }
+
+      if (await receiptAlreadyUsed(
+        receipt,
+        order._id
+      )) {
+        return errorResponse(
+          res,
+          409,
+          'This M-Pesa receipt has already been used for another order.'
+        );
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // CONFIRM PAYMENT
+    // -------------------------------------------------------------------------
 
     const updatedOrder = await orderController.markPaid(
       order._id,
       {
         mpesa_receipt: receipt || null,
-        payment_reference: paymentReference
+        payment_reference: reference
       }
     );
 
@@ -1249,14 +1459,20 @@ exports.adminMarkPaid = async (req, res) => {
       );
     }
 
+    // -------------------------------------------------------------------------
+    // AUDIT ADMINISTRATIVE ACTION
+    // -------------------------------------------------------------------------
+
     await logPaymentSafely(
       order._id,
       PROVIDERS.MANUAL,
       'admin_mark_paid',
       {
         admin_user_id: String(getUserId(req)),
+        admin_role: getUserRole(req),
         mpesa_receipt: receipt || null,
-        payment_reference: paymentReference
+        payment_reference: reference,
+        amount
       },
       {
         payment_status: PAYMENT_STATUSES.PAID
