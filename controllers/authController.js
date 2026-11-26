@@ -237,9 +237,11 @@ exports.login = async (req, res) => {
       return sendError(res, 401, 'Invalid credentials');
     }
 
+    // Explicitly retrieve password_hash because the User schema
+    // defines it with select: false.
     const user = await User.findOne({
       email: normalizedEmail
-    });
+    }).select('+password_hash');
 
     if (!user || !user.is_active) {
       return sendError(res, 401, 'Invalid credentials');
@@ -254,16 +256,22 @@ exports.login = async (req, res) => {
       return sendError(res, 401, 'Invalid credentials');
     }
 
-    return res.json({
+    const token = signToken(user);
+
+    return res.status(200).json({
       message: 'Login successful',
       user: safeUser(user),
-      token: signToken(user)
+      token
     });
 
   } catch (error) {
     logError('Login failed', error);
 
-    return sendError(res, 500, 'Login failed. Please try again.');
+    return sendError(
+      res,
+      500,
+      'Login failed. Please try again.'
+    );
   }
 };
 
