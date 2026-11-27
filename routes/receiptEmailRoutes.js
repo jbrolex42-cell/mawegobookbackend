@@ -18,22 +18,7 @@ const {
 
 const router = express.Router();
 
-/*
-|--------------------------------------------------------------------------
-| Middleware
-|--------------------------------------------------------------------------
-|
-| All receipt management endpoints require an authenticated staff member.
-|
-*/
-
 router.use(authenticate, requireStaff);
-
-/*
-|--------------------------------------------------------------------------
-| Helpers
-|--------------------------------------------------------------------------
-*/
 
 function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
@@ -52,17 +37,6 @@ function parseLimit(value, defaultValue = 50, maximum = 100) {
 function handleServerError(error, label) {
   console.error(`${label}:`, error);
 }
-
-/*
-|--------------------------------------------------------------------------
-| Resend Order Receipt
-|--------------------------------------------------------------------------
-|
-| POST /receipts/resend/:id
-|
-| Sends or resends the receipt email for a paid order.
-|
-*/
 
 router.post('/resend/:id', async (req, res) => {
   try {
@@ -121,21 +95,6 @@ router.post('/resend/:id', async (req, res) => {
     });
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| Receipt Email History
-|--------------------------------------------------------------------------
-|
-| GET /receipts/status/:id
-|
-| Retrieves email delivery history for an order.
-|
-| Optional query parameters:
-|   ?limit=50
-|   ?page=1
-|
-*/
 
 router.get('/status/:id', async (req, res) => {
   try {
@@ -208,11 +167,5 @@ router.get('/status/:id', async (req, res) => {
     });
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| Router Export
-|--------------------------------------------------------------------------
-*/
 
 module.exports = router;

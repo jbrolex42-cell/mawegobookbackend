@@ -30,11 +30,7 @@ const notificationCtrl = require('../controllers/notificationController');
 
 const router = express.Router();
 
-/*
-|--------------------------------------------------------------------------
-| Rate Limiters
-|--------------------------------------------------------------------------
-*/
+router.use('/newsletter',require('./newsletterRoutes'));
 
 const passwordResetLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -45,12 +41,6 @@ const passwordResetLimiter = rateLimit({
     error: 'Too many password reset attempts. Please try again later.'
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| Controller Registry
-|--------------------------------------------------------------------------
-*/
 
 const controllers = {
   authCtrl,
@@ -65,16 +55,6 @@ const controllers = {
   promoCtrl,
   notificationCtrl
 };
-
-/*
-|--------------------------------------------------------------------------
-| Controller Method Validation
-|--------------------------------------------------------------------------
-|
-| Check all methods used by this router before registering routes.
-| This prevents undefined controller handlers from causing runtime errors.
-|
-*/
 
 const requiredMethods = {
   authCtrl: [
@@ -205,25 +185,16 @@ function validateControllers() {
 
 validateControllers();
 
-/*
-|--------------------------------------------------------------------------
-| Authentication Routes
-|--------------------------------------------------------------------------
-*/
-
-// Customer registration.
 router.post(
   '/auth/register',
   authCtrl.register
 );
 
-// Customer and staff login.
 router.post(
   '/auth/login',
   authCtrl.login
 );
 
-// Password recovery.
 router.post(
   '/auth/forgot-password',
   passwordResetLimiter,
@@ -236,25 +207,17 @@ router.post(
   authCtrl.resetPassword
 );
 
-// Authenticated user profile.
 router.get(
   '/auth/me',
   authenticate,
   authCtrl.me
 );
 
-// Authenticated customer order history.
 router.get(
   '/auth/my-orders',
   authenticate,
   authCtrl.myOrders
 );
-
-/*
-|--------------------------------------------------------------------------
-| Staff Management Routes
-|--------------------------------------------------------------------------
-*/
 
 router.post(
   '/auth/staff',
@@ -277,19 +240,11 @@ router.patch(
   authCtrl.updateStaff
 );
 
-/*
-|--------------------------------------------------------------------------
-| Category Routes
-|--------------------------------------------------------------------------
-*/
-
-// Public categories.
 router.get(
   '/categories',
   productCtrl.categories
 );
 
-// Administrative category listing.
 router.get(
   '/admin/categories',
   authenticate,
@@ -297,7 +252,6 @@ router.get(
   productCtrl.listCategoriesAdmin
 );
 
-// Upload category image.
 router.post(
   '/admin/categories/:id/image',
   authenticate,
@@ -311,19 +265,12 @@ router.post(
   productCtrl.uploadCategoryImage
 );
 
-// Remove category image.
 router.delete(
   '/admin/categories/:id/image',
   authenticate,
   requireStaff,
   productCtrl.removeCategoryImage
 );
-
-/*
-|--------------------------------------------------------------------------
-| Public Product Routes
-|--------------------------------------------------------------------------
-*/
 
 router.get(
   '/products',
@@ -335,13 +282,6 @@ router.get(
   productCtrl.getBySlug
 );
 
-/*
-|--------------------------------------------------------------------------
-| Administrative Product Routes
-|--------------------------------------------------------------------------
-*/
-
-// Product listing.
 router.get(
   '/admin/products',
   authenticate,
@@ -349,7 +289,6 @@ router.get(
   productCtrl.listAdmin
 );
 
-// Create product.
 router.post(
   '/admin/products',
   authenticate,
@@ -359,7 +298,6 @@ router.post(
   productCtrl.create
 );
 
-// Update product.
 router.put(
   '/admin/products/:id',
   authenticate,
@@ -369,7 +307,6 @@ router.put(
   productCtrl.update
 );
 
-// Adjust stock.
 router.post(
   '/admin/products/:id/stock',
   authenticate,
@@ -377,7 +314,6 @@ router.post(
   productCtrl.adjustStock
 );
 
-// Stock movement history.
 router.get(
   '/admin/products/:id/ledger',
   authenticate,
@@ -385,7 +321,6 @@ router.get(
   productCtrl.stockLedger
 );
 
-// Delete product.
 router.delete(
   '/admin/products/:id',
   authenticate,
@@ -393,7 +328,6 @@ router.delete(
   productCtrl.remove
 );
 
-// Bulk product import.
 router.post(
   '/admin/products/import',
   authenticate,
@@ -401,20 +335,12 @@ router.post(
   productCtrl.bulkImport
 );
 
-/*
-|--------------------------------------------------------------------------
-| Promotion Routes
-|--------------------------------------------------------------------------
-*/
-
-// Validate promotion code.
 router.post(
   '/promos/validate',
   optionalAuth,
   promoCtrl.validate
 );
 
-// Administrative promotion listing.
 router.get(
   '/admin/promos',
   authenticate,
@@ -422,7 +348,6 @@ router.get(
   promoCtrl.list
 );
 
-// Create promotion.
 router.post(
   '/admin/promos',
   authenticate,
@@ -430,46 +355,29 @@ router.post(
   promoCtrl.create
 );
 
-/*
-|--------------------------------------------------------------------------
-| Customer Order Routes
-|--------------------------------------------------------------------------
-*/
-
-// Create an order.
 router.post(
   '/orders',
   optionalAuth,
   orderCtrl.create
 );
 
-// Public order tracking.
 router.get(
   '/orders/track/:orderNumber',
   orderCtrl.getByNumber
 );
 
-// Authenticated customer order status.
 router.get(
   '/orders/:id/status',
   authenticate,
   orderCtrl.getCustomerStatus
 );
 
-// Customer order cancellation.
 router.post(
   '/orders/:id/cancel',
   authenticate,
   orderCtrl.cancelCustomerOrder
 );
 
-/*
-|--------------------------------------------------------------------------
-| Administrative Order Routes
-|--------------------------------------------------------------------------
-*/
-
-// Order listing.
 router.get(
   '/admin/orders',
   authenticate,
@@ -477,7 +385,6 @@ router.get(
   orderCtrl.listAdmin
 );
 
-// Individual order details.
 router.get(
   '/admin/orders/:id',
   authenticate,
@@ -485,7 +392,6 @@ router.get(
   orderCtrl.getAdmin
 );
 
-// Update order status.
 router.patch(
   '/admin/orders/:id',
   authenticate,
@@ -493,7 +399,6 @@ router.patch(
   orderCtrl.updateStatus
 );
 
-// Manually mark order as paid.
 router.post(
   '/admin/orders/:id/mark-paid',
   authenticate,
@@ -501,50 +406,27 @@ router.post(
   paymentCtrl.adminMarkPaid
 );
 
-/*
-|--------------------------------------------------------------------------
-| Receipt Routes
-|--------------------------------------------------------------------------
-*/
-
 router.use(
   '/receipts',
   require('./receiptRoutes')
 );
 
-/*
-|--------------------------------------------------------------------------
-| M-Pesa Payment Routes
-|--------------------------------------------------------------------------
-*/
-
-// Initiate M-Pesa STK Push.
 router.post(
   '/payments/mpesa/stk',
   optionalAuth,
   mpesaCtrl.initiateStk
 );
 
-// Safaricom Daraja callback.
-// Do not require customer authentication on gateway callbacks.
 router.post(
   '/payments/mpesa/callback',
   mpesaCtrl.callback
 );
 
-/*
-|--------------------------------------------------------------------------
-| Card Payment Routes
-|--------------------------------------------------------------------------
-*/
-
-// Initiate card payment.
 router.post(
   '/payments/card/initiate',
   paymentCtrl.cardInitiate
 );
 
-// Card payment callback.
 router.get(
   '/payments/card/callback',
   paymentCtrl.cardCallback
@@ -554,12 +436,6 @@ router.post(
   '/payments/card/callback',
   paymentCtrl.cardCallback
 );
-
-/*
-|--------------------------------------------------------------------------
-| Loyalty Points Routes
-|--------------------------------------------------------------------------
-*/
 
 router.get(
   '/points/balance',
@@ -573,61 +449,42 @@ router.get(
   pointsCtrl.history
 );
 
-/*
-|--------------------------------------------------------------------------
-| Notification Routes
-|--------------------------------------------------------------------------
-*/
-
-// Notification listing.
 router.get(
   '/notifications',
   authenticate,
   notificationCtrl.list
 );
 
-// Unread notification count.
 router.get(
   '/notifications/unread-count',
   authenticate,
   notificationCtrl.unreadCount
 );
 
-// Mark one notification as read.
 router.patch(
   '/notifications/:id/read',
   authenticate,
   notificationCtrl.markRead
 );
 
-// Mark all notifications as read.
 router.post(
   '/notifications/read-all',
   authenticate,
   notificationCtrl.markAllRead
 );
 
-// Clear read notifications.
 router.delete(
   '/notifications/clear-read',
   authenticate,
   notificationCtrl.clearRead
 );
 
-// Clear all notifications.
 router.delete(
   '/notifications/clear-all',
   authenticate,
   notificationCtrl.clearAll
 );
 
-/*
-|--------------------------------------------------------------------------
-| Dashboard and Reporting Routes
-|--------------------------------------------------------------------------
-*/
-
-// Main administrative dashboard.
 router.get(
   '/admin/dashboard',
   authenticate,
@@ -635,7 +492,6 @@ router.get(
   reportCtrl.dashboard
 );
 
-// Sales report.
 router.get(
   '/admin/reports/sales',
   authenticate,
@@ -643,7 +499,6 @@ router.get(
   reportCtrl.salesReport
 );
 
-// Inventory report.
 router.get(
   '/admin/reports/inventory',
   authenticate,
@@ -651,7 +506,6 @@ router.get(
   reportCtrl.inventoryReport
 );
 
-// Profit and loss report.
 router.get(
   '/admin/reports/profit-loss',
   authenticate,
@@ -659,13 +513,6 @@ router.get(
   reportCtrl.profitLoss
 );
 
-/*
-|--------------------------------------------------------------------------
-| Supplier Management Routes
-|--------------------------------------------------------------------------
-*/
-
-// Supplier listing.
 router.get(
   '/admin/suppliers',
   authenticate,
@@ -673,7 +520,6 @@ router.get(
   supplierCtrl.listSuppliers
 );
 
-// Create supplier.
 router.post(
   '/admin/suppliers',
   authenticate,
@@ -681,7 +527,6 @@ router.post(
   supplierCtrl.createSupplier
 );
 
-// Update supplier.
 router.put(
   '/admin/suppliers/:id',
   authenticate,
@@ -689,13 +534,6 @@ router.put(
   supplierCtrl.updateSupplier
 );
 
-/*
-|--------------------------------------------------------------------------
-| Purchase Order Routes
-|--------------------------------------------------------------------------
-*/
-
-// Purchase order listing.
 router.get(
   '/admin/purchase-orders',
   authenticate,
@@ -703,7 +541,6 @@ router.get(
   supplierCtrl.listPurchaseOrders
 );
 
-// Create purchase order.
 router.post(
   '/admin/purchase-orders',
   authenticate,
@@ -711,7 +548,6 @@ router.post(
   supplierCtrl.createPurchaseOrder
 );
 
-// Receive purchase order.
 router.post(
   '/admin/purchase-orders/:id/receive',
   authenticate,
@@ -719,13 +555,6 @@ router.post(
   supplierCtrl.receivePurchaseOrder
 );
 
-/*
-|--------------------------------------------------------------------------
-| Expense Management Routes
-|--------------------------------------------------------------------------
-*/
-
-// Expense categories.
 router.get(
   '/admin/expenses/categories',
   authenticate,
@@ -733,7 +562,6 @@ router.get(
   expenseCtrl.categories
 );
 
-// Expense listing.
 router.get(
   '/admin/expenses',
   authenticate,
@@ -741,7 +569,6 @@ router.get(
   expenseCtrl.list
 );
 
-// Create expense.
 router.post(
   '/admin/expenses',
   authenticate,
@@ -749,7 +576,6 @@ router.post(
   expenseCtrl.create
 );
 
-// Update expense.
 router.put(
   '/admin/expenses/:id',
   authenticate,
@@ -757,7 +583,6 @@ router.put(
   expenseCtrl.update
 );
 
-// Delete expense.
 router.delete(
   '/admin/expenses/:id',
   authenticate,
@@ -765,12 +590,6 @@ router.delete(
   expenseCtrl.remove
 );
 
-/*
-|--------------------------------------------------------------------------
-| Store Settings
-|--------------------------------------------------------------------------
-*/
-// Update promotion.
 router.put(
   '/admin/promos/:id',
   authenticate,
@@ -778,7 +597,6 @@ router.put(
   promoCtrl.update
 );
 
-// Deactivate promotion (soft delete).
 router.delete(
   '/admin/promos/:id',
   authenticate,
@@ -809,11 +627,5 @@ router.get('/settings', async (req, res) => {
     });
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| Router Export
-|--------------------------------------------------------------------------
-*/
 
 module.exports = router;

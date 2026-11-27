@@ -13,10 +13,6 @@ const CONNECTION_OPTIONS = {
 
 let connectionPromise = null;
 
-/**
- * Connect to MongoDB.
- * Reuses an existing connection or an in-progress connection attempt.
- */
 async function connectMongo() {
   const uri = process.env.MONGODB_URI;
 
@@ -29,12 +25,10 @@ async function connectMongo() {
     );
   }
 
-  // Return the existing connection if already connected.
   if (mongoose.connection.readyState === 1) {
     return mongoose.connection;
   }
 
-  // Reuse an ongoing connection attempt.
   if (connectionPromise) {
     return connectionPromise;
   }
@@ -61,16 +55,10 @@ async function connectMongo() {
   return connectionPromise;
 }
 
-/**
- * Check whether MongoDB is currently connected.
- */
 function isConnected() {
   return mongoose.connection.readyState === 1;
 }
 
-/**
- * Get the current MongoDB connection state.
- */
 function getConnectionState() {
   const states = {
     0: 'disconnected',
@@ -82,9 +70,6 @@ function getConnectionState() {
   return states[mongoose.connection.readyState] || 'unknown';
 }
 
-/**
- * Disconnect from MongoDB gracefully.
- */
 async function disconnectMongo() {
   if (mongoose.connection.readyState === 0) {
     return;
@@ -95,9 +80,6 @@ async function disconnectMongo() {
   console.log('MongoDB disconnected successfully.');
 }
 
-/**
- * Register MongoDB connection event handlers.
- */
 mongoose.connection.on('connected', () => {
   console.log('MongoDB connection established.');
 });

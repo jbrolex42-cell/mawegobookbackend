@@ -5,10 +5,6 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const RECEIPT_EMAIL_STATUSES = Object.freeze([
   'pending',
   'sent',
@@ -16,10 +12,6 @@ const RECEIPT_EMAIL_STATUSES = Object.freeze([
 ]);
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/* -------------------------------------------------------------------------- */
-/* Schema                                                                     */
-/* -------------------------------------------------------------------------- */
 
 const receiptEmailLogSchema = new Schema(
   {
@@ -112,10 +104,6 @@ const receiptEmailLogSchema = new Schema(
   }
 );
 
-/* -------------------------------------------------------------------------- */
-/* Virtuals                                                                   */
-/* -------------------------------------------------------------------------- */
-
 receiptEmailLogSchema.virtual('is_sent').get(function () {
   return this.status === 'sent';
 });
@@ -123,10 +111,6 @@ receiptEmailLogSchema.virtual('is_sent').get(function () {
 receiptEmailLogSchema.virtual('can_retry').get(function () {
   return this.status === 'failed';
 });
-
-/* -------------------------------------------------------------------------- */
-/* Validation Middleware                                                      */
-/* -------------------------------------------------------------------------- */
 
 receiptEmailLogSchema.pre('validate', function () {
   if (this.status === 'sent') {
@@ -144,10 +128,6 @@ receiptEmailLogSchema.pre('validate', function () {
     this.next_retry_at = null;
   }
 });
-
-/* -------------------------------------------------------------------------- */
-/* Instance Methods                                                           */
-/* -------------------------------------------------------------------------- */
 
 receiptEmailLogSchema.methods.recordAttempt = function () {
   this.attempts += 1;
@@ -191,10 +171,6 @@ receiptEmailLogSchema.methods.markAsFailed = function (
   return this.save();
 };
 
-/* -------------------------------------------------------------------------- */
-/* Static Methods                                                             */
-/* -------------------------------------------------------------------------- */
-
 receiptEmailLogSchema.statics.findByOrder = function (orderId) {
   return this.find({
     order_id: orderId
@@ -236,11 +212,6 @@ receiptEmailLogSchema.statics.findRetryable = function (limit = 100) {
     .limit(safeLimit);
 };
 
-/* -------------------------------------------------------------------------- */
-/* Indexes                                                                    */
-/* -------------------------------------------------------------------------- */
-
-// Prevent multiple pending receipt records for one order.
 receiptEmailLogSchema.index(
   { order_id: 1 },
   {
@@ -252,7 +223,6 @@ receiptEmailLogSchema.index(
   }
 );
 
-// Efficient order history and status lookups.
 receiptEmailLogSchema.index(
   {
     order_id: 1,
@@ -264,7 +234,6 @@ receiptEmailLogSchema.index(
   }
 );
 
-// Efficient customer delivery history.
 receiptEmailLogSchema.index(
   {
     customer_email: 1,
@@ -275,7 +244,6 @@ receiptEmailLogSchema.index(
   }
 );
 
-// Efficient retry queue processing.
 receiptEmailLogSchema.index(
   {
     status: 1,
@@ -286,10 +254,6 @@ receiptEmailLogSchema.index(
     name: 'receipt_email_retry_queue'
   }
 );
-
-/* -------------------------------------------------------------------------- */
-/* Model Export                                                               */
-/* -------------------------------------------------------------------------- */
 
 module.exports =
   mongoose.models.ReceiptEmailLog ||

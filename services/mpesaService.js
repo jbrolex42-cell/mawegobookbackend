@@ -18,10 +18,6 @@ let cachedAccessToken = null;
 let tokenExpiresAt = 0;
 let tokenRequestPromise = null;
 
-// -----------------------------------------------------------------------------
-// CONFIGURATION
-// -----------------------------------------------------------------------------
-
 function getConfig() {
   const environment = String(
     process.env.MPESA_ENVIRONMENT || 'sandbox'
@@ -119,10 +115,6 @@ function getConfig() {
 
   return Object.freeze(config);
 }
-
-// -----------------------------------------------------------------------------
-// FETCH AND RESPONSE HELPERS
-// -----------------------------------------------------------------------------
 
 function getFetch() {
   if (typeof fetch !== 'function') {
@@ -227,10 +219,6 @@ async function parseResponse(response) {
   return data;
 }
 
-// -----------------------------------------------------------------------------
-// VALIDATION
-// -----------------------------------------------------------------------------
-
 function normalizePhone(phone) {
   if (
     phone === null ||
@@ -294,10 +282,6 @@ function normalizeOrderNumber(orderNumber) {
   return value;
 }
 
-// -----------------------------------------------------------------------------
-// TIMESTAMP AND PASSWORD
-// -----------------------------------------------------------------------------
-
 function getTimestamp() {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Africa/Nairobi',
@@ -344,10 +328,6 @@ function createStkPassword(
     'utf8'
   ).toString('base64');
 }
-
-// -----------------------------------------------------------------------------
-// ACCESS TOKEN
-// -----------------------------------------------------------------------------
 
 async function getAccessToken({
   forceRefresh = false
@@ -427,10 +407,6 @@ function clearAccessTokenCache() {
   tokenRequestPromise = null;
 }
 
-// -----------------------------------------------------------------------------
-// ACCOUNT REFERENCE
-// -----------------------------------------------------------------------------
-
 function createAccountReference(orderNumber) {
   const normalized = normalizeOrderNumber(orderNumber);
 
@@ -440,14 +416,8 @@ function createAccountReference(orderNumber) {
     .digest('hex')
     .slice(0, 10)
     .toUpperCase();
-
-  // 12 characters, suitable for the Daraja AccountReference field.
   return `MB${suffix}`;
 }
-
-// -----------------------------------------------------------------------------
-// STK PAYLOAD
-// -----------------------------------------------------------------------------
 
 function createStkPayload({
   config,
@@ -497,10 +467,6 @@ function createStkPayload({
   };
 }
 
-// -----------------------------------------------------------------------------
-// INITIATE STK PUSH
-// -----------------------------------------------------------------------------
-
 async function initiateStkPush({
   phone,
   amount,
@@ -548,8 +514,6 @@ async function initiateStkPush({
   try {
     data = await parseResponse(response);
   } catch (error) {
-    // A gateway/server error may occur after Safaricom has
-    // received the request. Do not assume it was rejected.
     if (
       response.status >= 500 ||
       response.status === 408
@@ -623,10 +587,6 @@ async function initiateStkPush({
     orderNumber: normalizedOrderNumber
   };
 }
-
-// -----------------------------------------------------------------------------
-// EXPORTS
-// -----------------------------------------------------------------------------
 
 module.exports = {
   getConfig,

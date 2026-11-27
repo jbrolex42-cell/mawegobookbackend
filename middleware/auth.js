@@ -6,10 +6,6 @@ const mongoose = require('mongoose');
 
 const { User } = require('../models');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -31,10 +27,6 @@ const MANAGER_ROLES = [
   'owner'
 ];
 
-/* -------------------------------------------------------------------------- */
-/* Configuration Validation                                                   */
-/* -------------------------------------------------------------------------- */
-
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
   if (process.env.NODE_ENV === 'production') {
     throw new Error(
@@ -46,10 +38,6 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
     '[Auth] WARNING: JWT_SECRET is missing or too short. Configure a strong secret before deployment.'
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
 
 const logError = (context, error) => {
   console.error(`[Auth] ${context}`, {
@@ -127,16 +115,6 @@ const getJwtSecret = () => {
   return JWT_SECRET;
 };
 
-/* -------------------------------------------------------------------------- */
-/* Token Signing                                                              */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Generate a signed access token.
- *
- * Usage:
- * const token = signToken(user);
- */
 function signToken(user) {
   if (!user || (!user._id && !user.id)) {
     throw new Error('A valid user is required to generate an access token.');
@@ -172,13 +150,6 @@ function signToken(user) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Token Verification                                                         */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Verify a JWT and validate its subject.
- */
 function verifyToken(token) {
   if (!token || typeof token !== 'string') {
     throw new Error('Missing access token.');
@@ -208,18 +179,6 @@ function verifyToken(token) {
   return payload;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Load Authenticated User                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Always reload the user from MongoDB.
- *
- * This ensures that:
- * - Deactivated accounts cannot continue using old tokens.
- * - Updated roles take effect immediately.
- * - Updated permissions take effect immediately.
- */
 async function loadAuthenticatedUser(payload) {
   if (!isValidObjectId(payload.id)) {
     return null;
@@ -238,16 +197,6 @@ async function loadAuthenticatedUser(payload) {
   return user;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Authentication Middleware                                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Require a valid authenticated user.
- *
- * Authorization:
- * Bearer <token>
- */
 async function authenticate(req, res, next) {
   const token = getTokenFromRequest(req);
 
@@ -292,16 +241,6 @@ async function authenticate(req, res, next) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Optional Authentication                                                   */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Authenticate the request when a valid token is supplied.
- *
- * Requests without a token continue as guests.
- * Invalid or expired optional tokens do not authenticate the user.
- */
 async function optionalAuth(req, res, next) {
   const token = getTokenFromRequest(req);
 
@@ -318,10 +257,7 @@ async function optionalAuth(req, res, next) {
       req.user = getPublicUser(user, true);
     }
   } catch (error) {
-    /*
-     * Optional authentication must not reject guest requests.
-     * Invalid tokens are simply treated as unauthenticated.
-     */
+
     if (
       !(error instanceof jwt.JsonWebTokenError) &&
       !(error instanceof jwt.TokenExpiredError)
@@ -333,16 +269,6 @@ async function optionalAuth(req, res, next) {
   return next();
 }
 
-/* -------------------------------------------------------------------------- */
-/* Role Authorization                                                         */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Require one of the specified roles.
- *
- * Example:
- * router.get('/admin', authenticate, requireRole('owner'), handler);
- */
 function requireRole(...roles) {
   const allowedRoles = roles.map(normalizeRole);
 
@@ -365,18 +291,6 @@ function requireRole(...roles) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Permission Authorization                                                   */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Require a specific permission.
- *
- * Owner, manager and staff are treated as trusted staff roles, matching
- * the behavior of the original middleware.
- *
- * Other roles must have the requested permission or wildcard permission.
- */
 function requirePermission(permission) {
   const requiredPermission = String(permission || '').trim();
 
@@ -415,19 +329,11 @@ function requirePermission(permission) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Convenience Middleware                                                     */
-/* -------------------------------------------------------------------------- */
-
 const requireStaff = requireRole(...STAFF_ROLES);
 
 const requireManager = requireRole(...MANAGER_ROLES);
 
 const requireOwner = requireRole('owner');
-
-/* -------------------------------------------------------------------------- */
-/* Exports                                                                    */
-/* -------------------------------------------------------------------------- */
 
 module.exports = {
   signToken,

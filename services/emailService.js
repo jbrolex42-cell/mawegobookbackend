@@ -10,7 +10,6 @@ const REQUIRED_METHODS = [
   'sendReceiptEmail'
 ];
 
-// Validate the underlying email service during application startup.
 for (const method of REQUIRED_METHODS) {
   if (typeof brevoEmail[method] !== 'function') {
     throw new Error(

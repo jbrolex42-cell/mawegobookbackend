@@ -12,13 +12,8 @@ const mongoose = require('mongoose');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 
-// Application modules
 const { connectMongo } = require('./config/mongo');
 const { Setting } = require('./models');
-
-// ============================================================
-// APPLICATION CONFIGURATION
-// ============================================================
 
 const app = express();
 
@@ -32,16 +27,11 @@ const UPLOADS_PATH = path.join(__dirname, 'uploads');
 
 const SHUTDOWN_TIMEOUT = 10000;
 
-// Render runs the application behind a reverse proxy.
-// Default to one trusted proxy hop on Render/production.
 const TRUST_PROXY_HOPS =
   process.env.TRUST_PROXY_HOPS !== undefined
     ? Number(process.env.TRUST_PROXY_HOPS)
     : (IS_PRODUCTION || process.env.RENDER === 'true' ? 1 : 0);
 
-// ============================================================
-// ENVIRONMENT VALIDATION
-// ============================================================
 
 function validateEnvironment() {
   const requiredVariables = [
@@ -111,15 +101,8 @@ function validateEnvironment() {
   }
 }
 
-// ============================================================
-// SECURITY MIDDLEWARE
-// ============================================================
-
 app.disable('x-powered-by');
 
-// IMPORTANT:
-// Render forwards the original client IP using X-Forwarded-For.
-// Trust only the configured number of proxy hops.
 app.set(
   'trust proxy',
   TRUST_PROXY_HOPS > 0
@@ -153,10 +136,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ============================================================
-// CORS CONFIGURATION
-// ============================================================
-
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN
       .split(',')
@@ -182,10 +161,6 @@ app.use(cors({
   ]
 }));
 
-// ============================================================
-// REQUEST PARSING
-// ============================================================
-
 app.use(express.json({
   limit: '10mb'
 }));
@@ -194,10 +169,6 @@ app.use(express.urlencoded({
   extended: true,
   limit: '10mb'
 }));
-
-// ============================================================
-// RATE LIMITING
-// ============================================================
 
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -233,10 +204,6 @@ app.use(
   authenticationLimiter
 );
 
-// ============================================================
-// UPLOAD DIRECTORY
-// ============================================================
-
 function initializeDirectories() {
   fs.mkdirSync(UPLOADS_PATH, {
     recursive: true
@@ -249,10 +216,6 @@ app.use('/uploads', express.static(UPLOADS_PATH, {
   index: false,
   dotfiles: 'deny'
 }));
-
-// ============================================================
-// HEALTH CHECK
-// ============================================================
 
 app.get('/api/health', (req, res) => {
   const databaseConnected =
@@ -275,20 +238,12 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ============================================================
-// API ROUTES
-// ============================================================
-
 app.use('/api', require('./routes'));
 
 app.use(
   '/api/receipt-emails',
   require('./routes/receiptEmailRoutes')
 );
-
-// ============================================================
-// PUBLIC SETTINGS
-// ============================================================
 
 app.get('/api/settings', async (req, res, next) => {
   try {
@@ -310,10 +265,6 @@ app.get('/api/settings', async (req, res, next) => {
   }
 });
 
-// ============================================================
-// FRONTEND STATIC FILES
-// ============================================================
-
 app.use(express.static(FRONTEND_PATH, {
   maxAge: IS_PRODUCTION ? '1d' : 0,
   etag: true,
@@ -321,20 +272,12 @@ app.use(express.static(FRONTEND_PATH, {
   dotfiles: 'deny'
 }));
 
-// ============================================================
-// API 404 HANDLER
-// ============================================================
-
 app.use('/api', (req, res) => {
   return res.status(404).json({
     success: false,
     error: 'API endpoint not found'
   });
 });
-
-// ============================================================
-// FRONTEND ROUTING
-// ============================================================
 
 app.get('*', (req, res, next) => {
   let decodedPath;
@@ -357,7 +300,6 @@ app.get('*', (req, res, next) => {
     `.${decodedPath}`
   );
 
-  // Prevent access outside the frontend directory.
   if (
     requestedPath !== FRONTEND_PATH &&
     !requestedPath.startsWith(FRONTEND_PATH + path.sep)
@@ -385,10 +327,6 @@ app.get('*', (req, res, next) => {
   });
 });
 
-// ============================================================
-// GLOBAL ERROR HANDLER
-// ============================================================
-
 app.use((error, req, res, next) => {
   if (res.headersSent) {
     return next(error);
@@ -401,7 +339,6 @@ app.use((error, req, res, next) => {
     timestamp: new Date().toISOString()
   });
 
-  // Malformed JSON.
   if (
     error instanceof SyntaxError &&
     error.status === 400 &&
@@ -413,7 +350,6 @@ app.use((error, req, res, next) => {
     });
   }
 
-  // Request payload too large.
   if (error.status === 413) {
     return res.status(413).json({
       success: false,
@@ -421,7 +357,6 @@ app.use((error, req, res, next) => {
     });
   }
 
-  // Upload and file validation errors.
   if (
     /multer|file type|file size|image upload/i.test(
       error.message
@@ -448,10 +383,6 @@ app.use((error, req, res, next) => {
   });
 });
 
-// ============================================================
-// DATABASE INITIALIZATION
-// ============================================================
-
 async function initializeDatabase() {
   console.log(
     '[DATABASE] Initializing Mawego Bookshop...'
@@ -467,10 +398,6 @@ async function initializeDatabase() {
     '[DATABASE] Initialization completed.'
   );
 }
-
-// ============================================================
-// SERVER LIFECYCLE
-// ============================================================
 
 let server = null;
 let shuttingDown = false;
@@ -528,10 +455,6 @@ async function shutdown(signal) {
     process.exit(1);
   }
 }
-
-// ============================================================
-// APPLICATION STARTUP
-// ============================================================
 
 async function start() {
   try {
@@ -613,10 +536,6 @@ async function start() {
     process.exitCode = 1;
   }
 }
-
-// ============================================================
-// APPLICATION ENTRY POINT
-// ============================================================
 
 if (require.main === module) {
   start();

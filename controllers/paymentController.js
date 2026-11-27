@@ -6,10 +6,6 @@ const { Order, PaymentLog } = require('../models');
 const orderController = require('./orderController');
 const mpesaService = require('../services/mpesaService');
 
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
 const PROVIDERS = Object.freeze({
   MPESA: 'mpesa',
   CARD: 'card',
@@ -31,16 +27,10 @@ const MAX_LOG_LENGTH = 15000;
 const MAX_PHONE_LENGTH = 20;
 const MAX_REFERENCE_LENGTH = 120;
 
-// Only these roles can perform administrative payment actions.
-// The owner role is used by this application's authentication middleware.
 const ADMIN_ROLES = new Set([
   'owner',
   'admin'
 ]);
-
-// =============================================================================
-// RESPONSE HELPERS
-// =============================================================================
 
 function successResponse(res, statusCode, message, data = {}) {
   return res.status(statusCode).json({
@@ -63,10 +53,6 @@ function serverError(res, message, err) {
 
   return errorResponse(res, 500, message);
 }
-
-// =============================================================================
-// GENERAL HELPERS
-// =============================================================================
 
 function normalizeString(value) {
   return typeof value === 'string'
@@ -107,24 +93,6 @@ function isPendingOrder(order) {
   );
 }
 
-// =============================================================================
-// KENYAN PHONE NUMBER NORMALIZATION
-// =============================================================================
-
-/**
- * Supported input:
- *
- * 0712345678
- * 0112345678
- * 712345678
- * 112345678
- * 254712345678
- * 254112345678
- * +254712345678
- * +254112345678
- *
- * Returns international format without the + sign.
- */
 function normalizePhone(value) {
   if (
     value === null ||
@@ -167,15 +135,6 @@ function maskPhone(value) {
   return `${phone.slice(0, 5)}****${phone.slice(-2)}`;
 }
 
-// =============================================================================
-// AMOUNT HELPERS
-// =============================================================================
-
-/**
- * Payment amounts are stored and processed as whole Kenyan shillings.
- *
- * Zero, negative, non-numeric and unsafe amounts are rejected.
- */
 function normalizeAmount(value) {
   if (
     value === null ||
@@ -197,10 +156,6 @@ function normalizeAmount(value) {
 
   return Math.round(amount);
 }
-
-// =============================================================================
-// AUDIT LOG SANITIZATION
-// =============================================================================
 
 const SENSITIVE_KEYS = new Set([
   'password',
@@ -292,10 +247,6 @@ function serializeLogPayload(value) {
   return serialized;
 }
 
-// =============================================================================
-// PAYMENT AUDIT LOGGING
-// =============================================================================
-
 async function logPayment(
   orderId,
   provider,
@@ -327,10 +278,6 @@ async function logPaymentSafely(...args) {
   }
 }
 
-// =============================================================================
-// ORDER ACCESS AND LOOKUP
-// =============================================================================
-
 async function findOrder(orderId) {
   if (!isValidObjectId(orderId)) {
     return null;
@@ -348,21 +295,18 @@ function canAccessPaymentOrder(
     return false;
   }
 
-  // Owner and legacy admin can access payment records.
   if (isAdmin(req)) {
     return true;
   }
 
   const userId = getUserId(req);
 
-  // Authenticated customers can only access their own orders.
   if (userId) {
     return (
       String(order.user_id || '') === String(userId)
     );
   }
 
-  // Guest customers must provide the matching order phone.
   const storedPhone = normalizePhone(
     order.customer_phone
   );
@@ -377,10 +321,6 @@ function canAccessPaymentOrder(
     storedPhone === submittedPhone
   );
 }
-
-// =============================================================================
-// PAYMENT VALIDATION
-// =============================================================================
 
 function validateOrderPayment(order, provider) {
   if (!order) {
@@ -432,10 +372,6 @@ function validateOrderPayment(order, provider) {
   };
 }
 
-// =============================================================================
-// GATEWAY CONFIGURATION
-// =============================================================================
-
 function isMpesaConfigured() {
   try {
     if (
@@ -473,19 +409,6 @@ function getMpesaConfigurationResponse(order) {
   };
 }
 
-// =============================================================================
-// M-PESA STK PUSH
-// =============================================================================
-
-/**
- * POST /api/payments/mpesa/stk-push
- *
- * Body:
- * {
- *   "order_id": "...",
- *   "phone": "0712345678"
- * }
- */
 exports.mpesaStkPush = async (req, res) => {
   let order = null;
 
@@ -579,10 +502,6 @@ exports.mpesaStkPush = async (req, res) => {
       );
     }
 
-    /*
-     * Prevent another STK request when an earlier request
-     * already has a checkout reference.
-     */
     if (order.mpesa_checkout_request_id) {
       return errorResponse(
         res,
@@ -596,10 +515,6 @@ exports.mpesaStkPush = async (req, res) => {
         }
       );
     }
-
-    // -------------------------------------------------------------------------
-    // INITIATE REAL DARAJA REQUEST
-    // -------------------------------------------------------------------------
 
     const result = await mpesaService.initiateStkPush({
       phone,
@@ -616,20 +531,12 @@ exports.mpesaStkPush = async (req, res) => {
       );
     }
 
-    // -------------------------------------------------------------------------
-    // SAVE CHECKOUT REQUEST ID
-    // -------------------------------------------------------------------------
-
     order.mpesa_checkout_request_id =
       result.checkoutRequestId;
 
     try {
       await order.save();
     } catch (saveError) {
-      /*
-       * Safaricom may already have sent the prompt.
-       * Do not automatically initiate another request.
-       */
 
       await logPaymentSafely(
         order._id,
@@ -665,10 +572,6 @@ exports.mpesaStkPush = async (req, res) => {
         }
       );
     }
-
-    // -------------------------------------------------------------------------
-    // AUDIT SUCCESSFUL INITIATION
-    // -------------------------------------------------------------------------
 
     await logPaymentSafely(
       order._id,
@@ -729,10 +632,6 @@ exports.mpesaStkPush = async (req, res) => {
     );
   }
 };
-
-// =============================================================================
-// M-PESA CALLBACK HELPERS
-// =============================================================================
 
 function getCallbackMetadata(callback) {
   const items = callback?.CallbackMetadata?.Item;
@@ -826,16 +725,6 @@ function acknowledgeMpesaCallback(res) {
   });
 }
 
-// =============================================================================
-// M-PESA CALLBACK
-// =============================================================================
-
-/**
- * POST /api/payments/mpesa/callback
- *
- * A browser request must never mark an order as paid.
- * Payment confirmation is handled server-side.
- */
 exports.mpesaCallback = async (req, res) => {
   const body = req.body || {};
 
@@ -871,10 +760,6 @@ exports.mpesaCallback = async (req, res) => {
       data.checkoutRequestId
     );
 
-    // -------------------------------------------------------------------------
-    // UNMATCHED CALLBACK
-    // -------------------------------------------------------------------------
-
     if (!order) {
       await logPaymentSafely(
         null,
@@ -893,10 +778,6 @@ exports.mpesaCallback = async (req, res) => {
 
       return acknowledgeMpesaCallback(res);
     }
-
-    // -------------------------------------------------------------------------
-    // FAILED PAYMENT
-    // -------------------------------------------------------------------------
 
     if (data.resultCode !== 0) {
       await logPaymentSafely(
@@ -919,10 +800,6 @@ exports.mpesaCallback = async (req, res) => {
 
       return acknowledgeMpesaCallback(res);
     }
-
-    // -------------------------------------------------------------------------
-    // SUCCESS CALLBACK VALIDATION
-    // -------------------------------------------------------------------------
 
     if (
       !data.receipt ||
@@ -978,10 +855,6 @@ exports.mpesaCallback = async (req, res) => {
       return acknowledgeMpesaCallback(res);
     }
 
-    // -------------------------------------------------------------------------
-    // DUPLICATE PAYMENT PROTECTION
-    // -------------------------------------------------------------------------
-
     if (
       order.payment_status === PAYMENT_STATUSES.PAID
     ) {
@@ -1021,10 +894,6 @@ exports.mpesaCallback = async (req, res) => {
       return acknowledgeMpesaCallback(res);
     }
 
-    // -------------------------------------------------------------------------
-    // RECEIPT VALIDATION
-    // -------------------------------------------------------------------------
-
     const receipt = String(data.receipt).trim();
 
     if (await receiptAlreadyUsed(
@@ -1047,10 +916,6 @@ exports.mpesaCallback = async (req, res) => {
 
       return acknowledgeMpesaCallback(res);
     }
-
-    // -------------------------------------------------------------------------
-    // CALLBACK PHONE VALIDATION
-    // -------------------------------------------------------------------------
 
     if (
       data.phone !== null &&
@@ -1089,10 +954,6 @@ exports.mpesaCallback = async (req, res) => {
         return acknowledgeMpesaCallback(res);
       }
     }
-
-    // -------------------------------------------------------------------------
-    // CONFIRM PAYMENT
-    // -------------------------------------------------------------------------
 
     const updatedOrder = await orderController.markPaid(
       order._id,
@@ -1142,25 +1003,10 @@ exports.mpesaCallback = async (req, res) => {
       'error'
     );
 
-    /*
-     * Safaricom receives an acknowledgement, but this internal
-     * processing error must be investigated and reconciled.
-     */
     return acknowledgeMpesaCallback(res);
   }
 };
 
-// =============================================================================
-// CARD PAYMENT INITIATION
-// =============================================================================
-
-/**
- * POST /api/payments/card/initiate
- *
- * Pesapal integration is not implemented in this controller.
- * Do not accept card payments until the actual gateway integration
- * and callback verification are implemented.
- */
 exports.cardInitiate = async (req, res) => {
   try {
     const orderId = normalizeString(
@@ -1276,10 +1122,6 @@ exports.cardInitiate = async (req, res) => {
   }
 };
 
-// =============================================================================
-// CARD PAYMENT CALLBACK
-// =============================================================================
-
 exports.cardCallback = async (req, res) => {
   try {
     await logPaymentSafely(
@@ -1308,24 +1150,6 @@ exports.cardCallback = async (req, res) => {
   }
 };
 
-// =============================================================================
-// ADMINISTRATIVE MANUAL PAYMENT CONFIRMATION
-// =============================================================================
-
-/**
- * POST /api/payments/admin/mark-paid/:id
- *
- * Owner/admin only.
- *
- * Body example:
- * {
- *   "payment_reference": "BANK-TRANSFER-123456",
- *   "mpesa_receipt": "QWE12345678"
- * }
- *
- * The administrator must independently verify that the money
- * was actually received before using this endpoint.
- */
 exports.adminMarkPaid = async (req, res) => {
   try {
     if (!isAuthenticated(req)) {
@@ -1439,10 +1263,6 @@ exports.adminMarkPaid = async (req, res) => {
       }
     }
 
-    // -------------------------------------------------------------------------
-    // CONFIRM PAYMENT
-    // -------------------------------------------------------------------------
-
     const updatedOrder = await orderController.markPaid(
       order._id,
       {
@@ -1458,10 +1278,6 @@ exports.adminMarkPaid = async (req, res) => {
         'Unable to mark order as paid.'
       );
     }
-
-    // -------------------------------------------------------------------------
-    // AUDIT ADMINISTRATIVE ACTION
-    // -------------------------------------------------------------------------
 
     await logPaymentSafely(
       order._id,
@@ -1496,10 +1312,6 @@ exports.adminMarkPaid = async (req, res) => {
     );
   }
 };
-
-// =============================================================================
-// EXPORTS
-// =============================================================================
 
 exports.logPayment = logPayment;
 exports.logPaymentSafely = logPaymentSafely;

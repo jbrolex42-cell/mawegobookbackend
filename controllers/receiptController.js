@@ -6,10 +6,6 @@ const mongoose = require('mongoose');
 const { Order, Setting } = require('../models');
 const { serialize } = require('../utils/helpers');
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
 const logError = (context, error) => {
   console.error(`[ReceiptController] ${context}`, {
     message: error?.message,
@@ -47,9 +43,6 @@ const isValidObjectId = (value) => {
   return mongoose.Types.ObjectId.isValid(String(value || ''));
 };
 
-/**
- * Load application settings into a plain object.
- */
 async function loadSettings() {
   const rows = await Setting.find({})
     .select('key value')
@@ -64,13 +57,6 @@ async function loadSettings() {
   }, {});
 }
 
-/**
- * Check whether the requester can access the requested order.
- *
- * Admins can access all orders.
- * Authenticated customers can access their own orders.
- * Guest customers must provide the matching phone number.
- */
 const canAccessOrder = (req, order, suppliedPhone = '') => {
   if (isAdmin(req)) {
     return true;
@@ -88,9 +74,6 @@ const canAccessOrder = (req, order, suppliedPhone = '') => {
   return Boolean(phone && orderPhone && phone === orderPhone);
 };
 
-/**
- * Standard receipt response.
- */
 async function sendReceipt(req, res, order, suppliedPhone = '') {
   if (!canAccessOrder(req, order, suppliedPhone)) {
     return res.status(403).json({
@@ -106,13 +89,6 @@ async function sendReceipt(req, res, order, suppliedPhone = '') {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get receipt by MongoDB order ID                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/receipts/:orderId
- */
 exports.getByOrderId = async (req, res) => {
   try {
     const orderId = req.params.orderId;
@@ -141,13 +117,6 @@ exports.getByOrderId = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Get receipt by public order number                                        */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/receipts/number/:orderNumber?phone=...
- */
 exports.getByOrderNumber = async (req, res) => {
   try {
     const orderNumber = cleanString(req.params.orderNumber);
@@ -177,10 +146,6 @@ exports.getByOrderNumber = async (req, res) => {
     });
   }
 };
-
-/* -------------------------------------------------------------------------- */
-/* Exports                                                                    */
-/* -------------------------------------------------------------------------- */
 
 exports.loadSettings = loadSettings;
 exports.normalizePhone = normalizePhone;

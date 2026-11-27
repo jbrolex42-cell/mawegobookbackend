@@ -5,10 +5,6 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
 const AUDIENCES = Object.freeze([
   'admin',
   'customer'
@@ -33,15 +29,8 @@ const MAX_BODY_LENGTH = 5000;
 const MAX_LINK_LENGTH = 1000;
 const MAX_ORDER_NUMBER_LENGTH = 100;
 
-// =============================================================================
-// SUBDOCUMENT SCHEMA
-// =============================================================================
-
 const notificationSchema = new Schema(
   {
-    // -------------------------------------------------------------------------
-    // RECIPIENT
-    // -------------------------------------------------------------------------
 
     audience: {
       type: String,
@@ -62,10 +51,6 @@ const notificationSchema = new Schema(
       index: true
     },
 
-    // -------------------------------------------------------------------------
-    // NOTIFICATION CLASSIFICATION
-    // -------------------------------------------------------------------------
-
     type: {
       type: String,
       enum: {
@@ -78,10 +63,6 @@ const notificationSchema = new Schema(
       trim: true,
       index: true
     },
-
-    // -------------------------------------------------------------------------
-    // NOTIFICATION CONTENT
-    // -------------------------------------------------------------------------
 
     title: {
       type: String,
@@ -103,10 +84,6 @@ const notificationSchema = new Schema(
       ]
     },
 
-    // -------------------------------------------------------------------------
-    // RELATED ORDER
-    // -------------------------------------------------------------------------
-
     order_id: {
       type: Schema.Types.ObjectId,
       ref: 'Order',
@@ -124,10 +101,6 @@ const notificationSchema = new Schema(
       ]
     },
 
-    // -------------------------------------------------------------------------
-    // NAVIGATION
-    // -------------------------------------------------------------------------
-
     link: {
       type: String,
       default: '',
@@ -140,8 +113,6 @@ const notificationSchema = new Schema(
         validator(value) {
           if (!value) return true;
 
-          // Allow relative application paths and HTTP(S) URLs.
-          // Reject javascript:, data:, and other unsafe protocols.
           if (value.startsWith('/')) {
             return !value.startsWith('//');
           }
@@ -158,10 +129,6 @@ const notificationSchema = new Schema(
       }
     },
 
-    // -------------------------------------------------------------------------
-    // READ STATUS
-    // -------------------------------------------------------------------------
-
     is_read: {
       type: Boolean,
       default: false,
@@ -173,18 +140,10 @@ const notificationSchema = new Schema(
       default: null
     },
 
-    // -------------------------------------------------------------------------
-    // ADDITIONAL DATA
-    // -------------------------------------------------------------------------
-
     meta: {
       type: Schema.Types.Mixed,
       default: () => ({})
     },
-
-    // -------------------------------------------------------------------------
-    // EXPIRATION
-    // -------------------------------------------------------------------------
 
     expires_at: {
       type: Date,
@@ -220,10 +179,6 @@ const notificationSchema = new Schema(
   }
 );
 
-// =============================================================================
-// VIRTUALS
-// =============================================================================
-
 notificationSchema.virtual('is_expired').get(function () {
   return Boolean(
     this.expires_at &&
@@ -240,17 +195,12 @@ notificationSchema.virtual('age').get(function () {
   );
 });
 
-// =============================================================================
-// VALIDATION
-// =============================================================================
-
 notificationSchema.pre('validate', function (next) {
-  // Admin notifications should not accidentally be assigned to a customer.
+
   if (this.audience === 'admin') {
     this.user_id = null;
   }
 
-  // Customer notifications should always have a recipient.
   if (this.audience === 'customer' && !this.user_id) {
     this.invalidate(
       'user_id',
@@ -258,7 +208,6 @@ notificationSchema.pre('validate', function (next) {
     );
   }
 
-  // Keep read status and read timestamp synchronized.
   if (this.is_read && !this.read_at) {
     this.read_at = new Date();
   }
@@ -269,10 +218,6 @@ notificationSchema.pre('validate', function (next) {
 
   next();
 });
-
-// =============================================================================
-// INSTANCE METHODS
-// =============================================================================
 
 notificationSchema.methods.markAsRead = async function () {
   if (this.is_read) {
@@ -295,10 +240,6 @@ notificationSchema.methods.markAsUnread = async function () {
 
   return this.save();
 };
-
-// =============================================================================
-// STATIC METHODS
-// =============================================================================
 
 notificationSchema.statics.markAllAsRead = function (
   audience,
@@ -365,18 +306,12 @@ notificationSchema.statics.getRecent = function (
     .lean();
 };
 
-// =============================================================================
-// INDEXES
-// =============================================================================
-
-// Efficient customer/admin notification feeds.
 notificationSchema.index({
   audience: 1,
   user_id: 1,
   created_at: -1
 });
 
-// Efficient unread notification queries.
 notificationSchema.index({
   audience: 1,
   user_id: 1,
@@ -384,21 +319,17 @@ notificationSchema.index({
   created_at: -1
 });
 
-// Efficient order-related notification lookups.
 notificationSchema.index({
   order_id: 1,
   created_at: -1
 });
 
-// Efficient notification type filtering.
 notificationSchema.index({
   audience: 1,
   type: 1,
   created_at: -1
 });
 
-// Automatically remove expired notifications.
-// Documents with expires_at: null are not expired by this index.
 notificationSchema.index(
   { expires_at: 1 },
   {
@@ -408,10 +339,6 @@ notificationSchema.index(
     }
   }
 );
-
-// =============================================================================
-// MODEL EXPORT
-// =============================================================================
 
 module.exports =
   mongoose.models.Notification ||

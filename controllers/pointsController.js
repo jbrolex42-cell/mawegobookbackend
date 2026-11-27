@@ -52,11 +52,6 @@ const parsePage = (value) => {
   return parsed;
 };
 
-/**
- * GET /api/rewards/balance
- *
- * Returns the authenticated customer's reward balance.
- */
 exports.balance = async (req, res) => {
   try {
     const userId = getUserId(req);
@@ -104,15 +99,6 @@ exports.balance = async (req, res) => {
   }
 };
 
-/**
- * GET /api/rewards/history
- *
- * Returns the authenticated customer's reward ledger.
- *
- * Optional query parameters:
- *   ?page=1
- *   ?limit=50
- */
 exports.history = async (req, res) => {
   try {
     const userId = getUserId(req);

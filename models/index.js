@@ -5,10 +5,6 @@ const mongoose = require('mongoose');
 
 const { Schema } = mongoose;
 
-// ============================================================
-// SHARED HELPERS
-// ============================================================
-
 const MODEL_OPTIONS = {
   timestamps: {
     createdAt: 'created_at',
@@ -43,10 +39,6 @@ function positiveNumber(options = {}) {
     ...options
   };
 }
-
-// ============================================================
-// M-PESA TRANSACTION
-// ============================================================
 
 const MpesaTransactionSchema = new Schema(
   {
@@ -110,10 +102,6 @@ MpesaTransactionSchema.index({
   status: 1,
   created_at: -1
 });
-
-// ============================================================
-// USER
-// ============================================================
 
 const UserSchema = new Schema(
   {
@@ -191,10 +179,6 @@ UserSchema.index({
   is_active: 1
 });
 
-// ============================================================
-// CATEGORY
-// ============================================================
-
 const CategorySchema = new Schema(
   {
     name: {
@@ -258,10 +242,6 @@ CategorySchema.index({
   sort_order: 1,
   name: 1
 });
-
-// ============================================================
-// PRODUCT
-// ============================================================
 
 const ProductSchema = new Schema(
   {
@@ -392,10 +372,6 @@ ProductSchema.index({
   sku: 'text'
 });
 
-// ============================================================
-// STOCK LEDGER
-// ============================================================
-
 const StockLedgerSchema = new Schema(
   {
     product_id: {
@@ -460,10 +436,6 @@ StockLedgerSchema.index({
   reference_id: 1
 });
 
-// ============================================================
-// ORDER ITEMS
-// ============================================================
-
 const OrderItemSchema = new Schema(
   {
     product_id: {
@@ -503,10 +475,6 @@ const OrderItemSchema = new Schema(
     _id: false
   }
 );
-
-// ============================================================
-// ORDER
-// ============================================================
 
 const OrderSchema = new Schema(
   {
@@ -688,10 +656,6 @@ OrderSchema.index({
   created_at: -1
 });
 
-// ============================================================
-// SUPPLIER
-// ============================================================
-
 const SupplierSchema = new Schema(
   {
     name: {
@@ -747,10 +711,6 @@ SupplierSchema.index({
   name: 1
 });
 
-// ============================================================
-// PURCHASE ORDER ITEMS
-// ============================================================
-
 const PurchaseOrderItemSchema = new Schema(
   {
     product_id: {
@@ -782,10 +742,6 @@ const PurchaseOrderItemSchema = new Schema(
     _id: true
   }
 );
-
-// ============================================================
-// PURCHASE ORDER
-// ============================================================
 
 const PurchaseOrderSchema = new Schema(
   {
@@ -852,10 +808,6 @@ PurchaseOrderSchema.index({
   created_at: -1
 });
 
-// ============================================================
-// PAYMENT LOG
-// ============================================================
-
 const PaymentLogSchema = new Schema(
   {
     order_id: {
@@ -896,10 +848,6 @@ PaymentLogSchema.index({
   created_at: -1
 });
 
-// ============================================================
-// DELIVERY ZONE
-// ============================================================
-
 const DeliveryZoneSchema = new Schema(
   {
     name: {
@@ -928,10 +876,6 @@ DeliveryZoneSchema.index({
   name: 1
 });
 
-// ============================================================
-// SHOP SETTINGS
-// ============================================================
-
 const SettingSchema = new Schema(
   {
     key: {
@@ -954,10 +898,6 @@ const SettingSchema = new Schema(
     versionKey: false
   }
 );
-
-// ============================================================
-// EXPENSE
-// ============================================================
 
 const ExpenseSchema = new Schema(
   {
@@ -1000,10 +940,6 @@ ExpenseSchema.index({
   category: 1,
   expense_date: -1
 });
-
-// ============================================================
-// ACTIVITY LOG
-// ============================================================
 
 const ActivityLogSchema = new Schema(
   {
@@ -1048,10 +984,6 @@ ActivityLogSchema.index({
 ActivityLogSchema.index({
   created_at: -1
 });
-
-// ============================================================
-// REWARDS POINTS LEDGER
-// ============================================================
 
 const PointsLedgerSchema = new Schema(
   {
@@ -1104,10 +1036,6 @@ PointsLedgerSchema.index({
   user_id: 1,
   created_at: -1
 });
-
-// ============================================================
-// PROMO CODE
-// ============================================================
 
 const PromoCodeSchema = new Schema(
   {
@@ -1197,10 +1125,6 @@ PromoCodeSchema.index({
   expires_at: 1
 });
 
-// ============================================================
-// NOTIFICATION
-// ============================================================
-
 const NotificationSchema = new Schema(
   {
     audience: {
@@ -1284,9 +1208,178 @@ NotificationSchema.index({
   created_at: -1
 });
 
-// ============================================================
-// REGISTER AND EXPORT MODELS
-// ============================================================
+
+// ============================================
+// NEWSLETTER SUBSCRIBER SCHEMA
+// ============================================
+
+const NewsletterSubscriberSchema = new Schema(
+  {
+    email: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+      maxlength: 254
+    },
+
+    status: {
+      type: String,
+      enum: ['pending', 'active', 'unsubscribed'],
+      default: 'pending',
+      index: true
+    },
+
+    verification_token_hash: {
+      type: String,
+      default: null,
+      select: false
+    },
+
+    verification_expires_at: {
+      type: Date,
+      default: null,
+      select: false
+    },
+
+    unsubscribe_token_hash: {
+      type: String,
+      required: true,
+      select: false
+    },
+
+    consent_at: {
+      type: Date,
+      default: Date.now
+    },
+
+    verified_at: {
+      type: Date,
+      default: null
+    },
+
+    unsubscribed_at: {
+      type: Date,
+      default: null
+    },
+
+    welcome_email_sent_at: {
+      type: Date,
+      default: null
+    },
+
+    last_campaign_sent_at: {
+      type: Date,
+      default: null
+    },
+
+    source: {
+      type: String,
+      trim: true,
+      default: 'website',
+      maxlength: 100
+    }
+  },
+  {
+    ...MODEL_OPTIONS,
+    collection: 'newsletter_subscribers'
+  }
+);
+
+NewsletterSubscriberSchema.index(
+  { email: 1 },
+  { unique: true }
+);
+
+NewsletterSubscriberSchema.index({
+  status: 1,
+  created_at: -1
+});
+
+// ============================================
+// NEWSLETTER CAMPAIGN SCHEMA
+// ============================================
+
+const NewsletterCampaignSchema = new Schema(
+  {
+    subject: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 200
+    },
+
+    preview_text: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: 250
+    },
+
+    content: {
+      type: String,
+      required: true,
+      maxlength: 50000
+    },
+
+    status: {
+      type: String,
+      enum: ['draft', 'sending', 'sent', 'failed'],
+      default: 'draft',
+      index: true
+    },
+
+    recipient_count: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    sent_count: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    failed_count: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+
+    created_by: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+
+    started_at: {
+      type: Date,
+      default: null
+    },
+
+    completed_at: {
+      type: Date,
+      default: null
+    },
+
+    failure_reason: {
+      type: String,
+      default: '',
+      maxlength: 2000
+    }
+  },
+  {
+    ...MODEL_OPTIONS,
+    collection: 'newsletter_campaigns'
+  }
+);
+
+NewsletterCampaignSchema.index({
+  status: 1,
+  created_at: -1
+});
+
 
 const User = registerModel('User', UserSchema);
 const Category = registerModel('Category', CategorySchema);
@@ -1308,6 +1401,16 @@ const PointsLedger = registerModel('PointsLedger', PointsLedgerSchema);
 const PromoCode = registerModel('PromoCode', PromoCodeSchema);
 const Notification = registerModel('Notification', NotificationSchema);
 
+const NewsletterSubscriber = registerModel(
+  'NewsletterSubscriber',
+  NewsletterSubscriberSchema
+);
+
+const NewsletterCampaign = registerModel(
+  'NewsletterCampaign',
+  NewsletterCampaignSchema
+);
+
 module.exports = {
   User,
   Category,
@@ -1324,5 +1427,7 @@ module.exports = {
   ActivityLog,
   PointsLedger,
   PromoCode,
-  Notification
+  Notification,
+  NewsletterSubscriber,
+  NewsletterCampaign
 };

@@ -11,10 +11,6 @@ const {
   parsePagination
 } = require('../utils/helpers');
 
-// ============================================================
-// CONFIGURATION
-// ============================================================
-
 const EXPENSE_CATEGORIES = Object.freeze([
   'Rent',
   'Salaries',
@@ -33,10 +29,6 @@ const EXPENSE_CATEGORIES = Object.freeze([
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_DESCRIPTION_LENGTH = 1000;
 const MAX_EXPENSE_AMOUNT = 999999999999;
-
-// ============================================================
-// SHARED HELPERS
-// ============================================================
 
 function sendError(res, status, message) {
   return res.status(status).json({
@@ -96,7 +88,6 @@ function validateAmount(value) {
     return null;
   }
 
-  // Store currency values to two decimal places.
   return Math.round((amount + Number.EPSILON) * 100) / 100;
 }
 
@@ -186,10 +177,6 @@ function getExpenseFilter(query) {
   return filter;
 }
 
-// ============================================================
-// GET EXPENSE CATEGORIES
-// ============================================================
-
 exports.categories = async (req, res) => {
   try {
     return res.json({
@@ -207,15 +194,10 @@ exports.categories = async (req, res) => {
   }
 };
 
-// ============================================================
-// LIST EXPENSES
-// ============================================================
-
 exports.list = async (req, res) => {
   try {
     const query = req.query || {};
 
-    // Validate date filters.
     const dateError = validateDateRange(
       query.from,
       query.to
@@ -271,10 +253,6 @@ exports.list = async (req, res) => {
   }
 };
 
-// ============================================================
-// CREATE EXPENSE
-// ============================================================
-
 exports.create = async (req, res) => {
   try {
     const {
@@ -284,7 +262,6 @@ exports.create = async (req, res) => {
       expense_date
     } = req.body || {};
 
-    // Validate required fields.
     if (
       category === undefined ||
       amount_kes === undefined ||
@@ -378,10 +355,6 @@ exports.create = async (req, res) => {
   }
 };
 
-// ============================================================
-// UPDATE EXPENSE
-// ============================================================
-
 exports.update = async (req, res) => {
   try {
     const { id } = req.params;
@@ -411,7 +384,6 @@ exports.update = async (req, res) => {
       expense_date
     } = req.body || {};
 
-    // Update category.
     if (category !== undefined) {
       const normalizedCategory = validateCategory(category);
 
@@ -426,7 +398,6 @@ exports.update = async (req, res) => {
       expense.category = normalizedCategory;
     }
 
-    // Update amount.
     if (amount_kes !== undefined) {
       const amount = validateAmount(amount_kes);
 
@@ -441,7 +412,6 @@ exports.update = async (req, res) => {
       expense.amount_kes = amount;
     }
 
-    // Update description.
     if (description !== undefined) {
       const normalizedDescription =
         validateDescription(description);
@@ -457,7 +427,6 @@ exports.update = async (req, res) => {
       expense.description = normalizedDescription;
     }
 
-    // Update expense date.
     if (expense_date !== undefined) {
       if (!isValidDate(expense_date)) {
         return sendError(
@@ -503,10 +472,6 @@ exports.update = async (req, res) => {
     );
   }
 };
-
-// ============================================================
-// DELETE EXPENSE
-// ============================================================
 
 exports.remove = async (req, res) => {
   try {

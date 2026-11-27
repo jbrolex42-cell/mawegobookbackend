@@ -12,10 +12,6 @@ const {
 
 const { serializeMany } = require('../utils/helpers');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const ACTIVE_ORDER_STATUSES = [
   'pending',
   'confirmed',
@@ -26,10 +22,6 @@ const ACTIVE_ORDER_STATUSES = [
 
 const RECENT_ORDER_LIMIT = 8;
 const TOP_PRODUCTS_LIMIT = 15;
-
-/* -------------------------------------------------------------------------- */
-/* General Helpers                                                            */
-/* -------------------------------------------------------------------------- */
 
 const logError = (context, error) => {
   console.error(`[ReportsController] ${context}`, {
@@ -80,9 +72,6 @@ const firstDayOfCurrentMonth = () => {
   );
 };
 
-/**
- * Strictly validates YYYY-MM-DD dates without accepting invalid calendar dates.
- */
 const isValidDate = (value) => {
   if (typeof value !== 'string') return false;
 
@@ -193,12 +182,6 @@ const getItemLineTotal = (item) => {
   return getItemUnitPrice(item) * getItemQuantity(item);
 };
 
-/**
- * Calculate cost of goods using the available product cost information.
- *
- * Note: this uses the current product cost, unless the order item stores
- * a historical unit_cost_kes field.
- */
 const calculateCostOfGoods = (item, costMap) => {
   const quantity = getItemQuantity(item);
 
@@ -218,22 +201,6 @@ const sum = (items, selector) => {
   );
 };
 
-/* -------------------------------------------------------------------------- */
-/* Dashboard                                                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/reports/dashboard
- *
- * Provides:
- * - Today's sales
- * - Monthly sales
- * - Pending orders
- * - Inventory statistics
- * - Gross profit estimate
- * - Recent orders
- * - Low stock products
- */
 exports.dashboard = async (req, res) => {
   try {
     const now = new Date();
@@ -385,10 +352,6 @@ exports.dashboard = async (req, res) => {
       total_units: 0
     };
 
-    /*
-     * Load paid monthly orders for gross profit calculation.
-     * The sales totals above are already calculated in MongoDB.
-     */
     const monthlyOrders = await Order.find(
       getPaidOrderFilter(monthStart, now)
     )
@@ -460,13 +423,6 @@ exports.dashboard = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Sales Report                                                               */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/reports/sales?from=YYYY-MM-DD&to=YYYY-MM-DD
- */
 exports.salesReport = async (req, res) => {
   try {
     const range = getDateRange(req.query);
@@ -616,13 +572,6 @@ exports.salesReport = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Inventory Report                                                           */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/reports/inventory
- */
 exports.inventoryReport = async (req, res) => {
   try {
     const products = await Product.find({
@@ -713,13 +662,6 @@ exports.inventoryReport = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Profit and Loss Report                                                     */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/reports/profit-loss?from=YYYY-MM-DD&to=YYYY-MM-DD
- */
 exports.profitLoss = async (req, res) => {
   try {
     const range = getDateRange(req.query);
@@ -830,10 +772,6 @@ exports.profitLoss = async (req, res) => {
 
     const grossProfit = productSales - costOfGoodsSold;
 
-    /*
-     * Delivery income is added separately because delivery fees are
-     * included in order totals but are not product revenue.
-     */
     const operatingProfit = grossProfit + deliveryIncome;
 
     const netProfit = operatingProfit - totalExpenses;
@@ -920,10 +858,6 @@ exports.profitLoss = async (req, res) => {
     });
   }
 };
-
-/* -------------------------------------------------------------------------- */
-/* Utility Exports                                                            */
-/* -------------------------------------------------------------------------- */
 
 exports.validDateRange = validDateRange;
 exports.getDateRange = getDateRange;

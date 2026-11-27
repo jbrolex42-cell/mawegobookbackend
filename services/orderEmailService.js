@@ -8,17 +8,9 @@ const { generateReceiptPdf } = require('./receiptPdf');
 
 const { sendReceiptEmail } = require('./brevoEmail');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const MAX_ERROR_LENGTH = 2000;
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
 
 function getOrderId(order) {
   if (!order || !order._id) {
@@ -91,16 +83,6 @@ function toError(error) {
     : new Error(normalizeError(error));
 }
 
-/* -------------------------------------------------------------------------- */
-/* Receipt Log Creation                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Creates a pending receipt log.
- *
- * A unique partial MongoDB index on order_id where status is "pending"
- * is required to prevent simultaneous receipt processing.
- */
 async function createPendingLog({ orderId, email }) {
   try {
     return await ReceiptEmailLog.create({
@@ -118,10 +100,6 @@ async function createPendingLog({ orderId, email }) {
     throw error;
   }
 }
-
-/* -------------------------------------------------------------------------- */
-/* Mark Receipt as Sent                                                      */
-/* -------------------------------------------------------------------------- */
 
 async function markReceiptSent(logId, result) {
   const messageId = result?.messageId || null;
@@ -154,10 +132,6 @@ async function markReceiptSent(logId, result) {
   return updatedLog;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Mark Receipt as Failed                                                    */
-/* -------------------------------------------------------------------------- */
-
 async function markReceiptFailed(logId, error) {
   return ReceiptEmailLog.findOneAndUpdate(
     {
@@ -177,41 +151,6 @@ async function markReceiptFailed(logId, error) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Send Order Receipt                                                        */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Sends a paid order receipt to the customer.
- *
- * Usage:
- *
- * await sendOrderReceipt(order);
- *
- * Force resend:
- *
- * await sendOrderReceipt(order, { force: true });
- *
- * Results:
- *
- * Already sent:
- * {
- *   success: true,
- *   duplicate: true
- * }
- *
- * Currently processing:
- * {
- *   success: false,
- *   processing: true
- * }
- *
- * Successfully accepted by Brevo:
- * {
- *   success: true,
- *   messageId: "..."
- * }
- */
 async function sendOrderReceipt(order, options = {}) {
   const force = options.force === true;
 
@@ -225,7 +164,6 @@ async function sendOrderReceipt(order, options = {}) {
 
   const orderId = getOrderId(order);
 
-  // Never send a receipt before confirmed payment.
   if (getOrderPaymentStatus(order) !== 'paid') {
     throw new Error(
       'Receipt email requires confirmed payment.'
@@ -243,10 +181,6 @@ async function sendOrderReceipt(order, options = {}) {
     orderId
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Check Previous Successful Delivery                                     */
-  /* ---------------------------------------------------------------------- */
-
   if (!force) {
     const existingSent = await ReceiptEmailLog.exists({
       order_id: orderId,
@@ -262,10 +196,6 @@ async function sendOrderReceipt(order, options = {}) {
     }
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Create Pending Delivery Log                                            */
-  /* ---------------------------------------------------------------------- */
-
   const log = await createPendingLog({
     orderId,
     email
@@ -278,10 +208,6 @@ async function sendOrderReceipt(order, options = {}) {
       message: 'A receipt email is already being processed.'
     };
   }
-
-  /* ---------------------------------------------------------------------- */
-  /* Generate PDF and Send Email                                            */
-  /* ---------------------------------------------------------------------- */
 
   let deliveryAccepted = false;
 
@@ -308,8 +234,6 @@ async function sendOrderReceipt(order, options = {}) {
       );
     }
 
-    // Brevo has accepted the email.
-    // Do not mark this attempt as failed if subsequent logging fails.
     deliveryAccepted = true;
 
     const updatedLog = await markReceiptSent(
@@ -328,8 +252,6 @@ async function sendOrderReceipt(order, options = {}) {
     const error = toError(originalError);
 
     if (deliveryAccepted) {
-      // Brevo may already have accepted the email.
-      // Do not automatically retry this delivery.
       error.code = 'RECEIPT_DELIVERY_STATUS_UNCONFIRMED';
       error.receiptLogId = log._id;
 
@@ -339,7 +261,6 @@ async function sendOrderReceipt(order, options = {}) {
     try {
       await markReceiptFailed(log._id, error);
     } catch (logError) {
-      // Preserve the original delivery error.
       error.logUpdateError = normalizeError(logError);
       error.receiptLogId = log._id;
     }
@@ -347,10 +268,6 @@ async function sendOrderReceipt(order, options = {}) {
     throw error;
   }
 }
-
-/* -------------------------------------------------------------------------- */
-/* Exports                                                                    */
-/* -------------------------------------------------------------------------- */
 
 module.exports = {
   sendOrderReceipt

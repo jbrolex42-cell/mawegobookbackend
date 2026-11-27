@@ -29,18 +29,12 @@ const DEFAULT_CLOUDINARY_FOLDER = 'mawego-bookshop/products';
 let cloudinaryInstance = null;
 let cloudinaryConfiguredAtLoad = null;
 
-/**
- * Ensure the local upload directory exists.
- */
 function ensureUploadDirectory() {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 ensureUploadDirectory();
 
-/**
- * Check whether all Cloudinary credentials are configured.
- */
 function cloudinaryConfigured() {
   return Boolean(
     process.env.CLOUDINARY_CLOUD_NAME &&
@@ -49,9 +43,6 @@ function cloudinaryConfigured() {
   );
 }
 
-/**
- * Lazily initialize Cloudinary.
- */
 function getCloudinary() {
   if (!cloudinaryConfigured()) {
     return null;
@@ -74,12 +65,6 @@ function getCloudinary() {
   return cloudinaryInstance;
 }
 
-/**
- * Validate an uploaded image using both its extension and MIME type.
- *
- * Note: MIME type and extension checks are useful basic safeguards,
- * but do not replace actual file-content inspection.
- */
 function imageFileFilter(_req, file, callback) {
   const extension = path.extname(file.originalname || '').toLowerCase();
   const mimeType = String(file.mimetype || '').toLowerCase();
@@ -96,9 +81,6 @@ function imageFileFilter(_req, file, callback) {
   );
 }
 
-/**
- * Memory storage is used when Cloudinary is configured.
- */
 const memoryUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -110,9 +92,6 @@ const memoryUpload = multer({
   fileFilter: imageFileFilter
 });
 
-/**
- * Disk storage is used when Cloudinary is not configured.
- */
 const diskUpload = multer({
   storage: multer.diskStorage({
     destination(_req, _file, callback) {
@@ -141,21 +120,12 @@ const diskUpload = multer({
   fileFilter: imageFileFilter
 });
 
-/**
- * Return the appropriate Multer middleware.
- *
- * Existing route usage remains:
- * router.post('/...', productImage(), resolveImageUrl, controller);
- */
 function productImage() {
   return cloudinaryConfigured()
     ? memoryUpload.single('image')
     : diskUpload.single('image');
 }
 
-/**
- * Upload a memory-stored image to Cloudinary.
- */
 function uploadToCloudinary(buffer, options = {}) {
   const cloudinary = getCloudinary();
 
@@ -195,9 +165,6 @@ function uploadToCloudinary(buffer, options = {}) {
   });
 }
 
-/**
- * Delete a local file safely.
- */
 async function removeLocalUpload(filename) {
   if (!filename) return;
 
@@ -218,17 +185,6 @@ async function removeLocalUpload(filename) {
   }
 }
 
-/**
- * Resolve the uploaded image URL and attach it to the request.
- *
- * Cloudinary:
- *   req.imageUrl
- *   req.cloudinaryPublicId
- *
- * Local storage:
- *   req.imageUrl
- *   req.file.filename
- */
 async function resolveImageUrl(req, res, next) {
   if (!req.file) {
     return next();
@@ -259,7 +215,6 @@ async function resolveImageUrl(req, res, next) {
   } catch (error) {
     console.error('Image upload failed:', error);
 
-    // Remove a local file if a later processing step fails.
     if (req.file.filename) {
       try {
         await removeLocalUpload(req.file.filename);
@@ -278,10 +233,6 @@ async function resolveImageUrl(req, res, next) {
   }
 }
 
-/**
- * Handle Multer errors consistently in routes that choose to use this
- * middleware as an error handler.
- */
 function handleUploadError(error, _req, res, next) {
   if (!error) {
     return next();

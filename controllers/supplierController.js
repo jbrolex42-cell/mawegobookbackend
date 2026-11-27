@@ -17,10 +17,6 @@ const {
   serializeMany
 } = require('../utils/helpers');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 
@@ -29,10 +25,6 @@ const PURCHASE_ORDER_STATUSES = [
   'received',
   'cancelled'
 ];
-
-/* -------------------------------------------------------------------------- */
-/* General Helpers                                                            */
-/* -------------------------------------------------------------------------- */
 
 const logError = (context, error) => {
   console.error(`[PurchasingController] ${context}`, {
@@ -118,10 +110,6 @@ const validateSupplierId = (id) => {
   return isValidObjectId(id);
 };
 
-/* -------------------------------------------------------------------------- */
-/* Supplier Helpers                                                           */
-/* -------------------------------------------------------------------------- */
-
 const validateSupplierData = (body, existing = null) => {
   const data = {};
 
@@ -177,10 +165,6 @@ const validateSupplierData = (body, existing = null) => {
 
   return data;
 };
-
-/* -------------------------------------------------------------------------- */
-/* Purchase Order Helpers                                                     */
-/* -------------------------------------------------------------------------- */
 
 const validatePurchaseOrderItems = async (items) => {
   if (!Array.isArray(items) || items.length === 0) {
@@ -289,13 +273,6 @@ const populatePurchaseOrder = async (id) => {
     .lean();
 };
 
-/* -------------------------------------------------------------------------- */
-/* List Suppliers                                                             */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/purchasing/suppliers
- */
 exports.listSuppliers = async (req, res) => {
   try {
     const filter = {
@@ -334,13 +311,6 @@ exports.listSuppliers = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Create Supplier                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/purchasing/suppliers
- */
 exports.createSupplier = async (req, res) => {
   try {
     const supplierData = validateSupplierData(req.body || {});
@@ -376,13 +346,6 @@ exports.createSupplier = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Update Supplier                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * PUT /api/purchasing/suppliers/:id
- */
 exports.updateSupplier = async (req, res) => {
   try {
     const { id } = req.params;
@@ -439,13 +402,6 @@ exports.updateSupplier = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Create Purchase Order                                                      */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/purchasing/orders
- */
 exports.createPurchaseOrder = async (req, res) => {
   try {
     const { supplier_id, items, notes } = req.body || {};
@@ -531,13 +487,6 @@ exports.createPurchaseOrder = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* List Purchase Orders                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/purchasing/orders?page=1&limit=20&status=ordered
- */
 exports.listPurchaseOrders = async (req, res) => {
   try {
     const { page, limit, skip } = getPagination(req.query);
@@ -605,19 +554,6 @@ exports.listPurchaseOrders = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Receive Purchase Order                                                     */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/purchasing/orders/:id/receive
- *
- * Receives all items in a purchase order.
- *
- * IMPORTANT:
- * This implementation uses a MongoDB transaction. MongoDB must run as a
- * replica set or supported sharded cluster for transactions to work.
- */
 exports.receivePurchaseOrder = async (req, res) => {
   const userId = getUserId(req);
 
@@ -687,9 +623,6 @@ exports.receivePurchaseOrder = async (req, res) => {
         ])
       );
 
-      /*
-       * Validate every product before making any stock changes.
-       */
       for (const item of po.items) {
         const product = productMap.get(String(item.product_id));
 
@@ -731,10 +664,6 @@ exports.receivePurchaseOrder = async (req, res) => {
         }
       }
 
-      /*
-       * Update each product and create its stock ledger entry.
-       * All changes are committed together or rolled back together.
-       */
       for (const item of po.items) {
         const product = productMap.get(String(item.product_id));
 
@@ -797,10 +726,6 @@ exports.receivePurchaseOrder = async (req, res) => {
       });
     }
 
-    /*
-     * Transactions require a replica set or supported sharded cluster.
-     * Do not silently fall back to non-transactional stock updates.
-     */
     if (
       error.code === 20 ||
       error.codeName === 'IllegalOperation' ||
@@ -820,10 +745,6 @@ exports.receivePurchaseOrder = async (req, res) => {
     await session.endSession();
   }
 };
-
-/* -------------------------------------------------------------------------- */
-/* Exports                                                                    */
-/* -------------------------------------------------------------------------- */
 
 exports.validatePurchaseOrderItems = validatePurchaseOrderItems;
 exports.calculatePurchaseOrderTotal = calculatePurchaseOrderTotal;

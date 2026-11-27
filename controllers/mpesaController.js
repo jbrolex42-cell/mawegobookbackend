@@ -12,10 +12,6 @@ const {
 const mpesaService = require('../services/mpesaService');
 const orderController = require('./orderController');
 
-// -----------------------------------------------------------------------------
-// Configuration
-// -----------------------------------------------------------------------------
-
 const PROVIDER = 'mpesa';
 
 const ACTIVE_STATUSES = [
@@ -31,10 +27,6 @@ const TRANSACTION_STATUSES = [
 ];
 
 const CALLBACK_SUCCESS_CODE = 0;
-
-// -----------------------------------------------------------------------------
-// General helpers
-// -----------------------------------------------------------------------------
 
 function isValidObjectId(value) {
   return (
@@ -154,10 +146,6 @@ function isUncertainError(error) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Payment logging
-// -----------------------------------------------------------------------------
-
 async function logPayment(
   orderId,
   eventType,
@@ -175,14 +163,10 @@ async function logPayment(
       status: status || null
     });
   } catch (error) {
-    // Logging must never interrupt payment processing.
+    
     logError('Payment log write failed', error);
   }
 }
-
-// -----------------------------------------------------------------------------
-// Transaction helpers
-// -----------------------------------------------------------------------------
 
 async function findActiveTransaction(orderId) {
   return MpesaTransaction.findOne({
@@ -252,10 +236,6 @@ function getCallbackBody(req) {
   return req.body?.Body?.stkCallback || null;
 }
 
-// -----------------------------------------------------------------------------
-// Callback validation
-// -----------------------------------------------------------------------------
-
 function validateCallbackMetadata(metadata) {
   const receipt = normalizeString(metadata.MpesaReceiptNumber);
 
@@ -292,10 +272,6 @@ function validateCallbackMetadata(metadata) {
     transactionDate: metadata.TransactionDate || null
   };
 }
-
-// -----------------------------------------------------------------------------
-// STK Push initiation
-// -----------------------------------------------------------------------------
 
 exports.initiateStk = async (req, res) => {
   let transaction = null;
@@ -365,7 +341,6 @@ exports.initiateStk = async (req, res) => {
       );
     }
 
-    // Check ownership when the request is authenticated.
     const userId = getUserId(req);
 
     if (
@@ -410,7 +385,6 @@ exports.initiateStk = async (req, res) => {
       );
     }
 
-    // Do not initiate another STK request while one is active.
     const activeTransaction = await findActiveTransaction(order._id);
 
     if (activeTransaction) {
@@ -430,7 +404,6 @@ exports.initiateStk = async (req, res) => {
       );
     }
 
-    // Create the local transaction before contacting Safaricom.
     transaction = await MpesaTransaction.create({
       order_id: order._id,
       phone: suppliedPhone,
@@ -500,7 +473,6 @@ exports.initiateStk = async (req, res) => {
       result.merchantRequestId
     );
 
-    // A successful STK response must include identifiers.
     if (!checkoutRequestId || !merchantRequestId) {
       const error = new Error(
         'Safaricom response did not include valid request identifiers.'
@@ -619,10 +591,6 @@ exports.initiateStk = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Safaricom callback
-// -----------------------------------------------------------------------------
-
 exports.callback = async (req, res) => {
   const callback = getCallbackBody(req);
 
@@ -684,7 +652,6 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // A previously completed callback is idempotent.
     if (transaction.status === 'success') {
       await logPayment(
         transaction.order_id,
@@ -709,10 +676,6 @@ exports.callback = async (req, res) => {
     transaction.result_description =
       callback.ResultDesc || '';
 
-    // -----------------------------------------------------------------------
-    // Failed or cancelled STK request
-    // -----------------------------------------------------------------------
-
     if (!isSuccessResultCode(resultCode)) {
       transaction.status = 'failed';
 
@@ -722,7 +685,6 @@ exports.callback = async (req, res) => {
         transaction.order_id
       );
 
-      // Do not mark the order failed if another request is still active.
       if (!activeTransaction) {
         await Order.updateOne(
           {
@@ -754,17 +716,12 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // -----------------------------------------------------------------------
-    // Successful STK callback
-    // -----------------------------------------------------------------------
-
     const metadata = callbackMetadata(callback);
 
     const validation = validateCallbackMetadata(metadata);
 
     if (!validation.valid) {
-      // A success result with invalid metadata may still represent money
-      // collected from the customer. Keep it pending for investigation.
+
       transaction.status = 'pending';
       transaction.result_description =
         `Successful callback requires review: ${validation.reason}`;
@@ -796,7 +753,6 @@ exports.callback = async (req, res) => {
       phone
     } = validation;
 
-    // Validate the callback against the original STK transaction.
     if (
       amount !== Number(transaction.amount_kes) ||
       phone !== normalizePhone(transaction.phone)
@@ -830,7 +786,6 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // Prevent the same M-Pesa receipt being applied to another transaction.
     const existingReceipt = await MpesaTransaction.findOne({
       _id: {
         $ne: transaction._id
@@ -894,7 +849,6 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // Verify the stored order still matches the original payment.
     if (
       order.payment_method !== PROVIDER ||
       Number(order.total_kes) !== amount
@@ -926,8 +880,6 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // If the order was already paid with this same receipt, this is an
-    // idempotent recovery of the transaction record.
     if (order.payment_status === 'paid') {
       if (
         normalizeString(order.mpesa_receipt) === receipt
@@ -960,7 +912,6 @@ exports.callback = async (req, res) => {
         );
       }
 
-      // A different receipt means another payment may have been collected.
       transaction.status = 'pending';
       transaction.result_description =
         'Order is already paid using a different payment reference. Possible duplicate customer charge; reconciliation required.';
@@ -987,8 +938,6 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // A cancelled order must not be silently marked paid. The customer
-    // may nevertheless have been charged by Safaricom.
     if (order.order_status === 'cancelled') {
       transaction.status = 'pending';
       transaction.result_description =
@@ -1015,10 +964,6 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // -----------------------------------------------------------------------
-    // Confirm the order through the existing order controller helper.
-    // -----------------------------------------------------------------------
-
     if (typeof orderController.markPaid !== 'function') {
       throw new Error(
         'orderController.markPaid is not available.'
@@ -1032,9 +977,7 @@ exports.callback = async (req, res) => {
         payment_method: PROVIDER
       });
     } catch (paymentError) {
-      // markPaid may have saved payment_status=paid before a later
-      // operation (such as reward points) failed. Re-read the order
-      // before deciding whether payment confirmation actually failed.
+
       const refreshedOrder = await Order.findById(order._id);
 
       if (
@@ -1073,7 +1016,6 @@ exports.callback = async (req, res) => {
       throw paymentError;
     }
 
-    // Confirm the saved order state before marking the transaction successful.
     const confirmedOrder = await Order.findById(order._id);
 
     if (
@@ -1119,8 +1061,7 @@ exports.callback = async (req, res) => {
 
     if (transaction) {
       try {
-        // Preserve the callback and transaction for later investigation.
-        // Do not mark a possibly collected payment as failed.
+
         transaction.status = 'pending';
         transaction.result_description =
           'Callback processing failed. Manual reconciliation required.';
@@ -1163,17 +1104,11 @@ exports.callback = async (req, res) => {
       );
     }
 
-    // Acknowledge the callback to avoid relying on provider retries.
-    // The pending transaction and payment log must be reconciled internally.
     return callbackAck(
       res,
       'Callback received. Payment status requires reconciliation.'
     );
   }
 };
-
-// -----------------------------------------------------------------------------
-// Optional transaction lookup helper for internal use
-// -----------------------------------------------------------------------------
 
 exports.findActiveTransaction = findActiveTransaction;

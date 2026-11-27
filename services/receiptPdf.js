@@ -1,41 +1,7 @@
 
 'use strict';
 
-/**
- * =============================================================================
- * MAWEGO BOOKSHOP - PROFESSIONAL PDF RECEIPT GENERATOR
- * =============================================================================
- *
- * Features:
- * - Professional A4 receipt design
- * - Mawego Bookshop branding
- * - Customer and order information
- * - Receipt and order numbers
- * - M-Pesa payment information
- * - Product itemized table
- * - Automatic multi-page support
- * - Automatic page numbering
- * - Financial calculations and validation
- * - Discount and delivery breakdown
- * - Nairobi timezone formatting
- * - Kenyan currency formatting
- * - Safe text handling
- * - Buffer-based PDF generation for email attachments
- *
- * Dependency:
- * npm install pdfkit
- *
- * Export:
- * generateReceiptPdf(order)
- *
- * =============================================================================
- */
-
 const PDFDocument = require('pdfkit');
-
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
 
 const CONFIG = Object.freeze({
   PAGE_SIZE: 'A4',
@@ -46,7 +12,7 @@ const CONFIG = Object.freeze({
 
   TAGLINE: 'Books, Stationery & Learning Materials',
 
-  FOOTER: 'Mawego Bookshop | Kenya | Prices in KES',
+  FOOTER: 'Mawego Bookshop ',
 
   CURRENCY: 'KES',
 
@@ -69,10 +35,6 @@ const CONFIG = Object.freeze({
     italic: 'Helvetica-Oblique'
   }
 });
-
-/* -------------------------------------------------------------------------- */
-/* General Helpers                                                            */
-/* -------------------------------------------------------------------------- */
 
 function firstDefined(...values) {
   return values.find(
@@ -163,10 +125,6 @@ function getReceiptNumber(order, createdAt) {
   return `MB-${year}-${id || 'RECEIPT'}`;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Order Date                                                                 */
-/* -------------------------------------------------------------------------- */
-
 function getCreatedAt(order) {
   return firstDefined(
     order.created_at,
@@ -176,10 +134,6 @@ function getCreatedAt(order) {
     new Date()
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Customer Information                                                       */
-/* -------------------------------------------------------------------------- */
 
 function getCustomerDetails(order) {
   const customer = order.customer || {};
@@ -221,10 +175,6 @@ function getCustomerDetails(order) {
     )
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/* Product Normalization                                                      */
-/* -------------------------------------------------------------------------- */
 
 function normalizeItems(order) {
   const items = firstDefined(
@@ -295,10 +245,6 @@ function normalizeItems(order) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Financial Information                                                      */
-/* -------------------------------------------------------------------------- */
-
 function getFinancialDetails(order, items) {
   const calculatedSubtotal = items.reduce(
     (sum, item) => sum + item.lineTotal,
@@ -366,10 +312,6 @@ function getFinancialDetails(order, items) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Payment Information                                                        */
-/* -------------------------------------------------------------------------- */
-
 function getPaymentDetails(order) {
   return {
     method: cleanText(
@@ -407,10 +349,6 @@ function getPaymentDetails(order) {
     )
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/* PDF Layout Helpers                                                         */
-/* -------------------------------------------------------------------------- */
 
 function drawHorizontalLine(doc, y, color = CONFIG.COLORS.border) {
   doc.save();
@@ -455,10 +393,6 @@ function drawLabelValue(doc, label, value, x, y, width = 240) {
       width: width - 85
     });
 }
-
-/* -------------------------------------------------------------------------- */
-/* Header                                                                     */
-/* -------------------------------------------------------------------------- */
 
 function drawHeader(doc, receiptNumber, orderNumber) {
   const margin = CONFIG.MARGIN;
@@ -511,10 +445,6 @@ function drawHeader(doc, receiptNumber, orderNumber) {
 
   drawHorizontalLine(doc, 145);
 }
-
-/* -------------------------------------------------------------------------- */
-/* Customer Details                                                           */
-/* -------------------------------------------------------------------------- */
 
 function drawCustomerSection(doc, customer, createdAt) {
   drawSectionTitle(doc, 'Customer Information');
@@ -573,10 +503,6 @@ function drawCustomerSection(doc, customer, createdAt) {
   drawHorizontalLine(doc, doc.y);
   doc.moveDown(1);
 }
-
-/* -------------------------------------------------------------------------- */
-/* Purchase Table                                                             */
-/* -------------------------------------------------------------------------- */
 
 const TABLE = Object.freeze({
   product: 45,
@@ -696,10 +622,6 @@ function drawProductRow(doc, item, index) {
   drawHorizontalLine(doc, doc.y, '#EDF1EE');
 }
 
-/* -------------------------------------------------------------------------- */
-/* Financial Summary                                                          */
-/* -------------------------------------------------------------------------- */
-
 function ensureSpace(doc, requiredHeight) {
   const bottomLimit = doc.page.height - 90;
 
@@ -767,10 +689,6 @@ function drawFinancialSummary(doc, financial) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Payment Details                                                            */
-/* -------------------------------------------------------------------------- */
-
 function drawPaymentSection(doc, payment) {
   ensureSpace(doc, 100);
 
@@ -816,10 +734,6 @@ function drawPaymentSection(doc, payment) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Receipt Footer                                                             */
-/* -------------------------------------------------------------------------- */
-
 function drawThankYou(doc) {
   ensureSpace(doc, 65);
 
@@ -843,10 +757,6 @@ function drawThankYou(doc) {
       align: 'center'
     });
 }
-
-/* -------------------------------------------------------------------------- */
-/* Page Numbering                                                             */
-/* -------------------------------------------------------------------------- */
 
 function addPageNumbers(doc) {
   const range = doc.bufferedPageRange();
@@ -881,16 +791,6 @@ function addPageNumbers(doc) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Main PDF Generator                                                         */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Generates a PDF receipt and returns a Buffer.
- *
- * @param {Object} order - Paid order document or plain object.
- * @returns {Promise<Buffer>}
- */
 function generateReceiptPdf(order) {
   return new Promise((resolve, reject) => {
     if (!order || typeof order !== 'object') {
@@ -962,7 +862,6 @@ function generateReceiptPdf(order) {
 
       const payment = getPaymentDetails(order);
 
-      // Header and customer information.
       drawHeader(
         doc,
         receiptNumber,
@@ -975,7 +874,6 @@ function generateReceiptPdf(order) {
         createdAt
       );
 
-      // Product table.
       drawSectionTitle(
         doc,
         'Purchase Details'
@@ -997,7 +895,6 @@ function generateReceiptPdf(order) {
         });
       }
 
-      // Totals and payment.
       drawFinancialSummary(
         doc,
         financial
@@ -1010,7 +907,6 @@ function generateReceiptPdf(order) {
 
       drawThankYou(doc);
 
-      // Add page numbers after all content has been created.
       addPageNumbers(doc);
 
       doc.end();
@@ -1019,10 +915,6 @@ function generateReceiptPdf(order) {
     }
   });
 }
-
-/* -------------------------------------------------------------------------- */
-/* Exports                                                                    */
-/* -------------------------------------------------------------------------- */
 
 module.exports = {
   generateReceiptPdf,

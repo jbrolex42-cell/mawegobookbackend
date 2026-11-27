@@ -386,10 +386,6 @@ const DEFAULT_SETTINGS = {
   about_us: 'Mawego Bookshop is your trusted source for textbooks, storybooks, and educational materials in Kenya.'
 };
 
-// ======================================================
-// ENSURE CATEGORIES
-// ======================================================
-
 function ensureCategories() {
   const existing = db.all('categories') || [];
   const existingSlugs = new Set(
@@ -419,10 +415,6 @@ function ensureCategories() {
   return added;
 }
 
-// ======================================================
-// ENSURE DELIVERY ZONES
-// ======================================================
-
 function ensureDeliveryZones() {
   const existing = db.all('delivery_zones') || [];
   const existingNames = new Set(
@@ -450,10 +442,6 @@ function ensureDeliveryZones() {
   return added;
 }
 
-// ======================================================
-// ENSURE SHOP SETTINGS
-// ======================================================
-
 function ensureSettings() {
   let added = 0;
 
@@ -480,10 +468,6 @@ function ensureSettings() {
 
   return added;
 }
-
-// ======================================================
-// ENSURE OWNER ACCOUNT
-// ======================================================
 
 function ensureOwner() {
   const owner = db.get(
@@ -528,10 +512,6 @@ function ensureOwner() {
   return true;
 }
 
-// ======================================================
-// MAIN INITIALIZATION
-// ======================================================
-
 function init() {
   console.log('');
   console.log('======================================');
@@ -551,10 +531,6 @@ function init() {
   console.log(`Categories configured: ${ALL_CATEGORIES.length}`);
   console.log('');
 }
-
-// ======================================================
-// RUN DIRECTLY
-// ======================================================
 
 if (require.main === module) {
   require('dotenv').config({

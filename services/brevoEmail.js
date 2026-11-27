@@ -3,20 +3,12 @@
 
 const brevo = require('@getbrevo/brevo');
 
-// ============================================================
-// CONFIGURATION
-// ============================================================
-
 const DEFAULT_FRONTEND_URL =
   'https://mawegobookshop.vercel.app';
 
 const DEFAULT_SENDER_NAME = 'Mawego Bookshop';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// ============================================================
-// HTML UTILITIES
-// ============================================================
 
 function escapeHtml(value) {
   const entities = {
@@ -31,10 +23,6 @@ function escapeHtml(value) {
     return entities[character];
   });
 }
-
-// ============================================================
-// VALIDATION
-// ============================================================
 
 function validateEmail(email) {
   return (
@@ -58,10 +46,6 @@ function requireString(value, fieldName) {
 
   return value.trim();
 }
-
-// ============================================================
-// FRONTEND URL
-// ============================================================
 
 function getFrontendUrl() {
   const frontendUrl = String(
@@ -94,10 +78,6 @@ function getFrontendUrl() {
   return frontendUrl;
 }
 
-// ============================================================
-// SENDER CONFIGURATION
-// ============================================================
-
 function getSender() {
   const email = requireEmail(
     process.env.BREVO_SENDER_EMAIL,
@@ -114,11 +94,6 @@ function getSender() {
   };
 }
 
-// ============================================================
-// BREVO CLIENT
-// Supports newer SDK (BrevoClient) and older SDK versions.
-// ============================================================
-
 function createBrevoClient() {
   const apiKey = String(
     process.env.BREVO_API_KEY || ''
@@ -130,7 +105,6 @@ function createBrevoClient() {
     );
   }
 
-  // New SDK API: @getbrevo/brevo v4+ / v5 / v6
   if (typeof brevo.BrevoClient === 'function') {
     return {
       version: 'modern',
@@ -142,7 +116,6 @@ function createBrevoClient() {
     };
   }
 
-  // Older SDK API.
   if (
     typeof brevo.TransactionalEmailsApi === 'function'
   ) {
@@ -173,10 +146,6 @@ function createBrevoClient() {
   );
 }
 
-// ============================================================
-// MESSAGE ID
-// ============================================================
-
 function getMessageId(response) {
   return (
     response?.messageId ||
@@ -185,10 +154,6 @@ function getMessageId(response) {
     null
   );
 }
-
-// ============================================================
-// SEND TRANSACTIONAL EMAIL
-// ============================================================
 
 async function deliverEmail(message) {
   const { version, client } = createBrevoClient();
@@ -200,8 +165,7 @@ async function deliverEmail(message) {
       message
     );
   } else {
-    // Older SDKs may expose SendSmtpEmail as a constructor.
-    // If not, the API accepts a plain message object.
+
     const legacyMessage =
       typeof brevo.SendSmtpEmail === 'function'
         ? Object.assign(new brevo.SendSmtpEmail(), message)
@@ -218,10 +182,6 @@ async function deliverEmail(message) {
     response
   };
 }
-
-// ============================================================
-// CORE EMAIL SENDER
-// ============================================================
 
 async function sendEmail(options = {}) {
   const {
@@ -279,10 +239,6 @@ async function sendEmail(options = {}) {
     message.textContent = String(finalText);
   }
 
-  // ==========================================================
-  // ATTACHMENTS
-  // ==========================================================
-
   if (attachment !== null) {
     const attachments = Array.isArray(attachment)
       ? attachment
@@ -316,10 +272,6 @@ async function sendEmail(options = {}) {
 
   return deliverEmail(message);
 }
-
-// ============================================================
-// WELCOME EMAIL
-// ============================================================
 
 async function sendWelcomeEmail({
   email,
@@ -378,10 +330,6 @@ async function sendWelcomeEmail({
     text: `Welcome to Mawego Bookshop, ${name}! Visit ${frontendUrl} to start shopping.`
   });
 }
-
-// ============================================================
-// PASSWORD RESET EMAIL
-// ============================================================
 
 async function sendPasswordResetEmail({
   email,
@@ -461,10 +409,6 @@ async function sendPasswordResetEmail({
     text: `Hello ${name}. Reset your password using this link: ${resetUrl}. This link expires in 30 minutes.`
   });
 }
-
-// ============================================================
-// ORDER RECEIPT EMAIL
-// ============================================================
 
 async function sendReceiptEmail({
   email,
@@ -549,10 +493,6 @@ async function sendReceiptEmail({
     ]
   });
 }
-
-// ============================================================
-// EXPORTS
-// ============================================================
 
 module.exports = {
   sendEmail,

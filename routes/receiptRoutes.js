@@ -6,12 +6,6 @@ const mongoose = require('mongoose');
 
 const router = express.Router();
 
-/*
-|--------------------------------------------------------------------------
-| Configuration
-|--------------------------------------------------------------------------
-*/
-
 const COLLECTION_NAME = 'orders';
 
 const RECEIPT_PREFIX = 'MB';
@@ -23,12 +17,6 @@ const DEFAULT_SHOP_DETAILS = Object.freeze({
   email: '',
   footer: 'Thank you for shopping with Mawego Bookshop.'
 });
-
-/*
-|--------------------------------------------------------------------------
-| Database Helpers
-|--------------------------------------------------------------------------
-*/
 
 function getOrdersCollection() {
   if (
@@ -44,12 +32,6 @@ function getOrdersCollection() {
 function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
-
-/*
-|--------------------------------------------------------------------------
-| General Helpers
-|--------------------------------------------------------------------------
-*/
 
 function toNumber(value, fallback = 0) {
   const number = Number(value);
@@ -80,12 +62,10 @@ function normalizePhone(phone) {
     return '';
   }
 
-  // Convert 07XXXXXXXX and 01XXXXXXXX to 254XXXXXXXXX.
   if (digits.length === 10 && digits.startsWith('0')) {
     digits = `254${digits.slice(1)}`;
   }
 
-  // Convert 7XXXXXXXX and 1XXXXXXXX to 254XXXXXXXXX.
   if (
     digits.length === 9 &&
     (digits.startsWith('7') || digits.startsWith('1'))
@@ -104,12 +84,6 @@ function normalizeDate(value) {
     : date;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Receipt Number Generation
-|--------------------------------------------------------------------------
-*/
-
 function generateReceiptNumber(order) {
   const date = normalizeDate(
     order.created_at ||
@@ -125,12 +99,6 @@ function generateReceiptNumber(order) {
   return `${RECEIPT_PREFIX}-${year}-${orderId}`;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Payment Validation
-|--------------------------------------------------------------------------
-*/
-
 function isOrderPaid(order) {
   const paymentStatus = normalizeText(
     firstDefined(
@@ -142,12 +110,6 @@ function isOrderPaid(order) {
 
   return paymentStatus === 'paid';
 }
-
-/*
-|--------------------------------------------------------------------------
-| Shop Details
-|--------------------------------------------------------------------------
-*/
 
 function getShopDetails() {
   return {
@@ -177,12 +139,6 @@ function getShopDetails() {
     )
   };
 }
-
-/*
-|--------------------------------------------------------------------------
-| Order Item Normalization
-|--------------------------------------------------------------------------
-*/
 
 function normalizeOrderItems(items) {
   if (!Array.isArray(items)) {
@@ -237,12 +193,6 @@ function normalizeOrderItems(items) {
     };
   });
 }
-
-/*
-|--------------------------------------------------------------------------
-| Order Normalization
-|--------------------------------------------------------------------------
-*/
 
 function normalizeOrder(order) {
   const items = normalizeOrderItems(order.items);
@@ -392,16 +342,6 @@ function normalizeOrder(order) {
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| Receipt Number Persistence
-|--------------------------------------------------------------------------
-|
-| Generate a stable receipt number and persist it atomically.
-| Concurrent requests for the same order use the same generated value.
-|
-*/
-
 async function ensureReceiptNumber(order) {
   const existingReceiptNumber = normalizeText(
     order.receipt_number
@@ -447,12 +387,6 @@ async function ensureReceiptNumber(order) {
   return updatedOrder.receipt_number;
 }
 
-/*
-|--------------------------------------------------------------------------
-| Receipt Builder
-|--------------------------------------------------------------------------
-*/
-
 async function buildReceipt(order) {
   if (!order) {
     throw new Error('Order is required to generate a receipt.');
@@ -479,12 +413,6 @@ async function buildReceipt(order) {
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| Customer Verification
-|--------------------------------------------------------------------------
-*/
-
 function verifyCustomerPhone(order, suppliedPhone) {
   const phone = normalizePhone(suppliedPhone);
 
@@ -505,12 +433,6 @@ function verifyCustomerPhone(order, suppliedPhone) {
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Error Responses
-|--------------------------------------------------------------------------
-*/
-
 function handleRouteError(res, error, context) {
   console.error(`${context}:`, error);
 
@@ -528,19 +450,6 @@ function handleRouteError(res, error, context) {
       : error.message
   });
 }
-
-/*
-|--------------------------------------------------------------------------
-| GET /receipts/order/:id
-|--------------------------------------------------------------------------
-|
-| Retrieve a receipt using the MongoDB order ID.
-|
-| IMPORTANT:
-| This endpoint should be restricted to authenticated staff or
-| protected with customer phone verification before public deployment.
-|
-*/
 
 router.get('/order/:id', async (req, res) => {
   try {
@@ -580,18 +489,6 @@ router.get('/order/:id', async (req, res) => {
     );
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| GET /receipts/number/:orderNumber
-|--------------------------------------------------------------------------
-|
-| Retrieve a receipt using the order number and verified customer phone.
-|
-| Example:
-| /receipts/number/MB-ORDER-001?phone=0712345678
-|
-*/
 
 router.get('/number/:orderNumber', async (req, res) => {
   try {
@@ -655,11 +552,5 @@ router.get('/number/:orderNumber', async (req, res) => {
     );
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| Export
-|--------------------------------------------------------------------------
-*/
 
 module.exports = router;

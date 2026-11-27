@@ -1,20 +1,8 @@
 
 'use strict';
 
-/**
- * Mawego Bookshop
- * JSON File Database Engine
- *
- * Lightweight persistent storage without native modules
- * or external database dependencies.
- */
-
 const fs = require('fs');
 const path = require('path');
-
-// --------------------------------------------------
-// CONFIGURATION
-// --------------------------------------------------
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_PATH = path.join(DATA_DIR, 'mawego.json');
@@ -44,10 +32,6 @@ const DEFAULT_META = {
   updated_at: null
 };
 
-// --------------------------------------------------
-// INITIALIZATION
-// --------------------------------------------------
-
 function ensureDirectory() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -68,10 +52,6 @@ function defaultData() {
 
   return data;
 }
-
-// --------------------------------------------------
-// UTILITIES
-// --------------------------------------------------
 
 function now() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -106,10 +86,6 @@ function assertRows(table) {
 
   return store[table];
 }
-
-// --------------------------------------------------
-// DATABASE NORMALIZATION
-// --------------------------------------------------
 
 function normalizeData(data) {
   const defaults = defaultData();
@@ -150,10 +126,6 @@ function normalizeData(data) {
   return data;
 }
 
-// --------------------------------------------------
-// FILE OPERATIONS
-// --------------------------------------------------
-
 function load() {
   ensureDirectory();
 
@@ -171,8 +143,6 @@ function load() {
 
     return normalizeData(parsed);
   } catch (error) {
-    // Do not overwrite a potentially recoverable database.
-    // Invalid JSON should be investigated or restored manually.
     throw new Error(
       `Unable to load database at ${DB_PATH}: ${error.message}`
     );
@@ -189,9 +159,6 @@ function writeFile(data) {
       encoding: 'utf8',
       mode: 0o600
     });
-
-    // Rename replaces the previous file atomically on
-    // supported local filesystems.
     fs.renameSync(TEMP_PATH, DB_PATH);
   } catch (error) {
     try {
@@ -199,16 +166,11 @@ function writeFile(data) {
         fs.unlinkSync(TEMP_PATH);
       }
     } catch {
-      // Preserve the original write error.
     }
 
     throw new Error(`Database save failed: ${error.message}`);
   }
 }
-
-// --------------------------------------------------
-// DATABASE STATE
-// --------------------------------------------------
 
 let store = load();
 
@@ -216,10 +178,6 @@ function save() {
   store._meta.updated_at = now();
   writeFile(store);
 }
-
-// --------------------------------------------------
-// ID GENERATION
-// --------------------------------------------------
 
 function nextId(table) {
   assertTable(table);
@@ -251,10 +209,6 @@ function nextId(table) {
   return id;
 }
 
-// --------------------------------------------------
-// QUERY OPERATIONS
-// --------------------------------------------------
-
 function all(table, filterFn) {
   const rows = assertRows(table);
 
@@ -280,10 +234,6 @@ function get(table, filterFn) {
 
   return result ? clone(result) : null;
 }
-
-// --------------------------------------------------
-// INSERT OPERATIONS
-// --------------------------------------------------
 
 function insert(table, row) {
   const rows = assertRows(table);
@@ -323,10 +273,6 @@ function insert(table, row) {
   };
 }
 
-// --------------------------------------------------
-// UPDATE OPERATIONS
-// --------------------------------------------------
-
 function update(table, id, patch) {
   const rows = assertRows(table);
 
@@ -346,7 +292,6 @@ function update(table, id, patch) {
 
   const updates = clone(patch);
 
-  // Record identity must remain unchanged.
   delete updates.id;
 
   rows[index] = {
@@ -364,10 +309,6 @@ function update(table, id, patch) {
 
   return { changes: 1 };
 }
-
-// --------------------------------------------------
-// DELETE OPERATIONS
-// --------------------------------------------------
 
 function remove(table, filterFn) {
   const rows = assertRows(table);
@@ -397,10 +338,6 @@ function remove(table, filterFn) {
   return { changes };
 }
 
-// --------------------------------------------------
-// TABLE OPERATIONS
-// --------------------------------------------------
-
 function setTable(table, rows) {
   assertTable(table);
 
@@ -424,10 +361,6 @@ function setTable(table, rows) {
   };
 }
 
-// --------------------------------------------------
-// ACTIVITY LOGGING
-// --------------------------------------------------
-
 function logActivity(
   userId,
   action,
@@ -449,10 +382,6 @@ function logActivity(
   });
 }
 
-// --------------------------------------------------
-// DATABASE MANAGEMENT
-// --------------------------------------------------
-
 function reload() {
   store = load();
 
@@ -460,7 +389,6 @@ function reload() {
 }
 
 function raw() {
-  // Read-only copy: callers cannot mutate the internal store.
   return clone(store);
 }
 
@@ -483,10 +411,6 @@ function stats() {
     database_path: DB_PATH
   };
 }
-
-// --------------------------------------------------
-// PUBLIC DATABASE API
-// --------------------------------------------------
 
 const db = {
   all,

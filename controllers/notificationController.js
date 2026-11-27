@@ -1,25 +1,6 @@
 
 'use strict';
 
-/**
- * Notification Controller
- *
- * Handles:
- * - Admin order notifications
- * - Customer order notifications
- * - Order status notifications
- * - Notification listing and pagination
- * - Unread notification counts
- * - Marking individual notifications as read
- * - Marking all notifications as read
- * - Clearing read notifications
- * - Clearing all notifications
- *
- * Expected middleware:
- * - Authentication middleware must populate req.user.
- * - Authorization middleware should restrict access to permitted roles.
- */
-
 const mongoose = require('mongoose');
 
 const { Notification } = require('../models');
@@ -29,10 +10,6 @@ const {
   serializeMany,
   parsePagination
 } = require('../utils/helpers');
-
-// -----------------------------------------------------------------------------
-// Configuration
-// -----------------------------------------------------------------------------
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
@@ -51,13 +28,6 @@ const NOTIFICATION_TYPES = {
   ORDER_STATUS: 'order_status'
 };
 
-// -----------------------------------------------------------------------------
-// General helpers
-// -----------------------------------------------------------------------------
-
-/**
- * Safely converts an identifier into a string.
- */
 function getId(value) {
   if (!value) return null;
 
@@ -68,23 +38,14 @@ function getId(value) {
   return String(value);
 }
 
-/**
- * Returns the authenticated user's ID.
- */
 function getUserId(req) {
   return getId(req.user?.id || req.user?._id);
 }
 
-/**
- * Checks whether an identifier is a valid MongoDB ObjectId.
- */
 function isValidObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value);
 }
 
-/**
- * Safely formats a monetary amount.
- */
 function formatCurrency(amount) {
   const value = Number(amount);
 
@@ -98,25 +59,16 @@ function formatCurrency(amount) {
   })}`;
 }
 
-/**
- * Safely encodes an order number for use in a URL.
- */
 function getTrackingLink(orderNumber) {
   return `/pages/track.html?order=${encodeURIComponent(
     String(orderNumber || '')
   )}`;
 }
 
-/**
- * Gets the order identifier.
- */
 function getOrderId(order) {
   return order?._id || order?.id || null;
 }
 
-/**
- * Checks whether an order contains the required notification information.
- */
 function validateOrder(order) {
   if (!order || typeof order !== 'object') {
     throw new Error('A valid order is required to create a notification.');
@@ -135,9 +87,6 @@ function validateOrder(order) {
   }
 }
 
-/**
- * Creates a consistent notification error response.
- */
 function handleError(res, err, message) {
   console.error(`[NotificationController] ${message}:`, err);
 
@@ -146,12 +95,6 @@ function handleError(res, err, message) {
   });
 }
 
-/**
- * Determines the notification audience and ownership scope.
- *
- * Customers can only access their own notifications.
- * Admins can only access admin notifications.
- */
 function scopeFilter(req) {
   if (!req.user) {
     return null;
@@ -181,9 +124,6 @@ function scopeFilter(req) {
   return null;
 }
 
-/**
- * Gets a safe notification query filter.
- */
 function getScopedFilter(req, extra = {}) {
   const scope = scopeFilter(req);
 
@@ -197,9 +137,6 @@ function getScopedFilter(req, extra = {}) {
   };
 }
 
-/**
- * Parses and normalizes pagination parameters.
- */
 function getPagination(query) {
   const parsed = parsePagination(query || {});
 
@@ -227,19 +164,6 @@ function getPagination(query) {
   };
 }
 
-// -----------------------------------------------------------------------------
-// Notification creation
-// -----------------------------------------------------------------------------
-
-/**
- * Creates an admin notification and, where applicable,
- * a customer notification when an order is placed.
- *
- * Call from orderController after successfully creating an order.
- *
- * @param {Object} order
- * @returns {Promise<boolean>}
- */
 async function notifyOrderPlaced(order) {
   validateOrder(order);
 
@@ -299,15 +223,6 @@ async function notifyOrderPlaced(order) {
   return true;
 }
 
-/**
- * Creates a customer notification when an order status changes.
- *
- * Call from orderController after successfully updating order status.
- *
- * @param {Object} order
- * @param {string} statusLabel
- * @returns {Promise<boolean>}
- */
 async function notifyOrderStatus(order, statusLabel) {
   if (!order || !order.user_id) {
     return false;
@@ -341,18 +256,6 @@ async function notifyOrderStatus(order, statusLabel) {
   return true;
 }
 
-// -----------------------------------------------------------------------------
-// List notifications
-// -----------------------------------------------------------------------------
-
-/**
- * GET /api/notifications
- *
- * Query parameters:
- * - page
- * - limit
- * - unread=1
- */
 exports.list = async (req, res) => {
   try {
     const filter = getScopedFilter(req);
@@ -400,13 +303,6 @@ exports.list = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Unread notification count
-// -----------------------------------------------------------------------------
-
-/**
- * GET /api/notifications/unread-count
- */
 exports.unreadCount = async (req, res) => {
   try {
     const filter = getScopedFilter(req, {
@@ -433,13 +329,6 @@ exports.unreadCount = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Mark one notification as read
-// -----------------------------------------------------------------------------
-
-/**
- * PATCH /api/notifications/:id/read
- */
 exports.markRead = async (req, res) => {
   try {
     const notificationId = req.params.id;
@@ -491,13 +380,6 @@ exports.markRead = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Mark all notifications as read
-// -----------------------------------------------------------------------------
-
-/**
- * PATCH /api/notifications/read-all
- */
 exports.markAllRead = async (req, res) => {
   try {
     const filter = getScopedFilter(req, {
@@ -534,15 +416,6 @@ exports.markAllRead = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Clear read notifications
-// -----------------------------------------------------------------------------
-
-/**
- * DELETE /api/notifications/read
- *
- * Deletes only notifications that have already been read.
- */
 exports.clearRead = async (req, res) => {
   try {
     const filter = getScopedFilter(req, {
@@ -569,15 +442,6 @@ exports.clearRead = async (req, res) => {
   }
 };
 
-// -----------------------------------------------------------------------------
-// Clear all notifications
-// -----------------------------------------------------------------------------
-
-/**
- * DELETE /api/notifications
- *
- * Deletes all notifications belonging to the authenticated audience.
- */
 exports.clearAll = async (req, res) => {
   try {
     const filter = getScopedFilter(req);
@@ -601,10 +465,6 @@ exports.clearAll = async (req, res) => {
     );
   }
 };
-
-// -----------------------------------------------------------------------------
-// Public internal helpers
-// -----------------------------------------------------------------------------
 
 exports.notifyOrderPlaced = notifyOrderPlaced;
 exports.notifyOrderStatus = notifyOrderStatus;

@@ -28,10 +28,6 @@ const { sendOrderReceipt } = require('../services/orderEmailService');
 
 const { validatePromoForCustomer } = require('./promoController');
 
-// =============================================================================
-// CONFIGURATION
-// =============================================================================
-
 const FREE_DELIVERY_THRESHOLD =
   Number(process.env.FREE_DELIVERY_THRESHOLD_KES) || 2000;
 
@@ -70,10 +66,6 @@ const ALLOWED_PAYMENT_STATUSES = [
   'refunded'
 ];
 
-// =============================================================================
-// GENERAL HELPERS
-// =============================================================================
-
 function isValidObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value);
 }
@@ -91,17 +83,14 @@ function normalizePhone(value) {
     phone = phone.slice(1);
   }
 
-  // Convert international dialing prefix.
   if (phone.startsWith('00254')) {
     phone = phone.slice(2);
   }
 
-  // Convert Kenyan local format: 07XXXXXXXX / 01XXXXXXXX.
   if (/^0[17]\d{8}$/.test(phone)) {
     phone = '254' + phone.slice(1);
   }
 
-  // Convert Kenyan mobile number without the leading zero.
   if (/^[17]\d{8}$/.test(phone)) {
     phone = '254' + phone;
   }
@@ -185,10 +174,6 @@ function getOrderNumber(order) {
 function isOrderCancelled(order) {
   return order?.order_status === 'cancelled';
 }
-
-// =============================================================================
-// STOCK MANAGEMENT
-// =============================================================================
 
 async function deductStockForOrder(order) {
   if (!order?._id) {
@@ -335,10 +320,6 @@ async function restoreStockForOrder(order) {
 
   return true;
 }
-
-// =============================================================================
-// REWARD POINTS
-// =============================================================================
 
 async function awardPoints(userId, order, points) {
   const amount = Math.floor(Number(points));
@@ -568,10 +549,6 @@ async function reverseCheckoutPoints(userId, order) {
   return true;
 }
 
-// =============================================================================
-// PROMOTION MANAGEMENT
-// =============================================================================
-
 async function consumePromoCode(code) {
   if (!code) {
     return false;
@@ -633,9 +610,6 @@ async function reversePromoUsage(code) {
   );
 }
 
-// =============================================================================
-// EMAIL
-// =============================================================================
 
 async function sendReceiptSafely(order) {
   try {
@@ -648,10 +622,6 @@ async function sendReceiptSafely(order) {
     );
   }
 }
-
-// =============================================================================
-// CHECKOUT VALIDATION
-// =============================================================================
 
 function validateCheckoutBody(body, authenticatedUser) {
   const {
@@ -758,10 +728,6 @@ function normalizeBasketItems(items) {
   );
 }
 
-// =============================================================================
-// CREATE ORDER
-// =============================================================================
-
 exports.create = async (req, res) => {
   let createdOrder = null;
   let pointsReserved = false;
@@ -863,7 +829,6 @@ exports.create = async (req, res) => {
     subtotal = normalizeMoney(subtotal);
     productDiscount = normalizeMoney(productDiscount);
 
-    // Promotion validation.
     let couponCode = null;
     let couponDiscount = 0;
 
@@ -893,7 +858,6 @@ exports.create = async (req, res) => {
       subtotal - couponDiscount
     );
 
-    // Reward point validation.
     let pointsRedeemed = Math.floor(
       Number(req.body.points_redeemed) || 0
     );
@@ -950,7 +914,6 @@ exports.create = async (req, res) => {
       }
     }
 
-    // Final totals.
     const deliveryFee = getDeliveryFee(
       subtotal,
       fulfilment_type
@@ -1025,7 +988,6 @@ exports.create = async (req, res) => {
 
     createdOrder = order;
 
-    // Reserve reward points.
     if (pointsRedeemed > 0 && userId) {
       await reservePoints(
         userId,
@@ -1037,13 +999,11 @@ exports.create = async (req, res) => {
       pointsReserved = true;
     }
 
-    // Consume promotion usage.
     if (couponCode) {
       await consumePromoCode(couponCode);
       promoConsumed = true;
     }
 
-    // COD stock reservation.
     if (payment_method === 'cash_on_delivery') {
       await deductStockForOrder(order);
       stockDeducted = true;
@@ -1126,10 +1086,6 @@ exports.create = async (req, res) => {
   }
 };
 
-// =============================================================================
-// PUBLIC ORDER TRACKING
-// =============================================================================
-
 exports.getByNumber = async (req, res) => {
   try {
     const orderNumber = normalizeString(
@@ -1184,10 +1140,6 @@ exports.getByNumber = async (req, res) => {
   }
 };
 
-// =============================================================================
-// AUTHENTICATED CUSTOMER ORDER STATUS
-// =============================================================================
-
 exports.getCustomerStatus = async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -1232,10 +1184,6 @@ exports.getCustomerStatus = async (req, res) => {
     });
   }
 };
-
-// =============================================================================
-// CUSTOMER ORDER CANCELLATION
-// =============================================================================
 
 exports.cancelCustomerOrder = async (req, res) => {
   try {
@@ -1304,10 +1252,6 @@ exports.cancelCustomerOrder = async (req, res) => {
     });
   }
 };
-
-// =============================================================================
-// ADMIN ORDER LISTING
-// =============================================================================
 
 exports.listAdmin = async (req, res) => {
   try {
@@ -1399,10 +1343,6 @@ exports.listAdmin = async (req, res) => {
   }
 };
 
-// =============================================================================
-// ADMIN ORDER DETAILS
-// =============================================================================
-
 exports.getAdmin = async (req, res) => {
   try {
     if (!isValidObjectId(req.params.id)) {
@@ -1435,10 +1375,6 @@ exports.getAdmin = async (req, res) => {
     });
   }
 };
-
-// =============================================================================
-// ADMIN ORDER STATUS UPDATE
-// =============================================================================
 
 exports.updateStatus = async (req, res) => {
   try {
@@ -1540,10 +1476,6 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// =============================================================================
-// MARK ORDER AS PAID
-// =============================================================================
-
 exports.markPaid = async (orderId, paymentMeta = {}) => {
   if (!isValidObjectId(orderId)) {
     throw new Error('Invalid order ID.');
@@ -1603,11 +1535,7 @@ exports.markPaid = async (orderId, paymentMeta = {}) => {
   await sendReceiptSafely(order);
 
   return serialize(order);
-};
-
-// =============================================================================
-// EXPORTED HELPERS
-// =============================================================================
+}
 
 exports.awardPoints = awardPoints;
 exports.deductStockForOrder = deductStockForOrder;

@@ -32,7 +32,6 @@ function parsePagination(query) {
   return { page, limit, offset, skip: offset };
 }
 
-/** Serialize mongoose doc for API (id instead of _id) */
 function serialize(doc) {
   if (!doc) return null;
   const o = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
@@ -70,9 +69,8 @@ function serialize(doc) {
   return o;
 }
 
-/** Points: 1 point per KES 50 spent (paid). 100 points = KES 50 off */
-const POINTS_PER_KES = 1 / 50; // earn
-const KES_PER_POINT = 0.5; // redeem: 100 pts = 50 KES
+const POINTS_PER_KES = 1 / 50; 
+const KES_PER_POINT = 0.5;
 const MIN_REDEEM_POINTS = 100;
 
 function isSaleActive(product) {

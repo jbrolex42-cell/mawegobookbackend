@@ -18,10 +18,8 @@ const receiptOrderSchema = new Schema(
   {
     collection: 'orders',
 
-    // Preserve compatibility with the existing Order documents.
     strict: false,
 
-    // Do not automatically add timestamps to existing documents.
     timestamps: false,
 
     versionKey: false,
@@ -29,24 +27,12 @@ const receiptOrderSchema = new Schema(
   }
 );
 
-/*
-|--------------------------------------------------------------------------
-| Virtual Properties
-|--------------------------------------------------------------------------
-*/
-
 receiptOrderSchema.virtual('has_receipt').get(function () {
   return Boolean(
     this.receipt_number &&
     this.receipt_number.trim()
   );
 });
-
-/*
-|--------------------------------------------------------------------------
-| Instance Methods
-|--------------------------------------------------------------------------
-*/
 
 receiptOrderSchema.methods.setReceiptNumber = function (receiptNumber) {
   if (
@@ -66,12 +52,6 @@ receiptOrderSchema.methods.clearReceiptNumber = function () {
 
   return this.save();
 };
-
-/*
-|--------------------------------------------------------------------------
-| Static Methods
-|--------------------------------------------------------------------------
-*/
 
 receiptOrderSchema.statics.findByReceiptNumber = function (
   receiptNumber
@@ -103,12 +83,6 @@ receiptOrderSchema.statics.findWithReceipt = function (limit = 100) {
     .sort({ _id: -1 })
     .limit(safeLimit);
 };
-
-/*
-|--------------------------------------------------------------------------
-| Model Registration
-|--------------------------------------------------------------------------
-*/
 
 module.exports =
   mongoose.models.ReceiptOrder ||

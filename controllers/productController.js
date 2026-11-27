@@ -26,10 +26,6 @@ const {
   getCloudinary
 } = require('../middleware/upload');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const DEFAULT_ADMIN_LIMIT = 50;
 const MAX_ADMIN_LIMIT = 1000;
 const MAX_PUBLIC_LIMIT = 100;
@@ -42,10 +38,6 @@ const SORT_OPTIONS = {
   price_desc: { price_kes: -1, name: 1 },
   newest: { created_at: -1, _id: -1 }
 };
-
-/* -------------------------------------------------------------------------- */
-/* General helpers                                                            */
-/* -------------------------------------------------------------------------- */
 
 const logError = (context, error) => {
   console.error(`[ProductController] ${context}`, {
@@ -276,10 +268,6 @@ const generateUniqueSlug = async (name, excludeId = null) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Product serialization                                                      */
-/* -------------------------------------------------------------------------- */
-
 const withCategory = async (product) => {
   if (!product) return null;
 
@@ -323,10 +311,6 @@ const withCategoryList = async (products) => {
 
   return list;
 };
-
-/* -------------------------------------------------------------------------- */
-/* Image management                                                            */
-/* -------------------------------------------------------------------------- */
 
 const deleteImage = async (image = {}) => {
   const publicId = image.image_public_id;
@@ -382,10 +366,6 @@ const replaceImage = async (document, req) => {
   return previousImage;
 };
 
-/* -------------------------------------------------------------------------- */
-/* Stock and sales helpers                                                     */
-/* -------------------------------------------------------------------------- */
-
 const hasSalesHistory = async (productId) => {
   if (
     OrderItem &&
@@ -437,14 +417,6 @@ const validatePriceFields = (body) => {
   return { price, cost };
 };
 
-/* -------------------------------------------------------------------------- */
-/* Categories                                                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/categories
- * Public active categories.
- */
 exports.categories = async (req, res) => {
   try {
     const categories = await Category.find({
@@ -465,10 +437,6 @@ exports.categories = async (req, res) => {
   }
 };
 
-/**
- * GET /api/admin/categories
- * All categories for administration.
- */
 exports.listCategoriesAdmin = async (req, res) => {
   try {
     const categories = await Category.find({})
@@ -487,9 +455,6 @@ exports.listCategoriesAdmin = async (req, res) => {
   }
 };
 
-/**
- * POST /api/admin/categories/:id/image
- */
 exports.uploadCategoryImage = async (req, res) => {
   try {
     if (!isObjectId(req.params.id)) {
@@ -543,9 +508,6 @@ exports.uploadCategoryImage = async (req, res) => {
   }
 };
 
-/**
- * DELETE /api/admin/categories/:id/image
- */
 exports.removeCategoryImage = async (req, res) => {
   try {
     if (!isObjectId(req.params.id)) {
@@ -588,13 +550,6 @@ exports.removeCategoryImage = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Public product endpoints                                                    */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/products
- */
 exports.listPublic = async (req, res) => {
   try {
     const { page, limit, skip } = getPublicPagination(req.query);
@@ -659,9 +614,6 @@ exports.listPublic = async (req, res) => {
   }
 };
 
-/**
- * GET /api/products/:slug
- */
 exports.getBySlug = async (req, res) => {
   try {
     const slug = cleanString(req.params.slug);
@@ -697,14 +649,6 @@ exports.getBySlug = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Admin product listing                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/admin/products
- * Includes inactive products.
- */
 exports.listAdmin = async (req, res) => {
   try {
     const { page, limit, skip } = parseAdminPagination(req.query);
@@ -764,13 +708,6 @@ exports.listAdmin = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Create product                                                              */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/admin/products
- */
 exports.create = async (req, res) => {
   let createdProduct = null;
 
@@ -865,7 +802,6 @@ exports.create = async (req, res) => {
   } catch (error) {
     logError('Product creation failed', error);
 
-    // Avoid leaving a product without its initial stock ledger entry.
     if (createdProduct) {
       try {
         await Product.deleteOne({ _id: createdProduct._id });
@@ -901,15 +837,6 @@ exports.create = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Update product                                                              */
-/* -------------------------------------------------------------------------- */
-
-/**
- * PUT /api/admin/products/:id
- *
- * Stock quantity must be changed through adjustStock.
- */
 exports.update = async (req, res) => {
   try {
     if (!validateProductId(req, res)) return;
@@ -1067,15 +994,6 @@ exports.update = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Delete or archive product                                                   */
-/* -------------------------------------------------------------------------- */
-
-/**
- * DELETE /api/admin/products/:id
- *
- * Products with sales history are archived instead of permanently deleted.
- */
 exports.remove = async (req, res) => {
   try {
     if (!validateProductId(req, res)) return;
@@ -1124,15 +1042,6 @@ exports.remove = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Stock adjustment                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/admin/products/:id/stock
- *
- * Applies a stock adjustment and creates a matching ledger entry.
- */
 exports.adjustStock = async (req, res) => {
   try {
     if (!validateProductId(req, res)) return;
@@ -1165,7 +1074,6 @@ exports.adjustStock = async (req, res) => {
     const notes = cleanString(body.notes);
     const productId = req.params.id;
 
-    // A negative adjustment is allowed only when enough stock exists.
     const stockFilter = {
       _id: productId
     };
@@ -1214,7 +1122,7 @@ exports.adjustStock = async (req, res) => {
         notes
       });
     } catch (ledgerError) {
-      // Compensate if ledger insertion fails.
+
       await Product.updateOne(
         {
           _id: product._id,
@@ -1256,13 +1164,6 @@ exports.adjustStock = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Stock ledger                                                                */
-/* -------------------------------------------------------------------------- */
-
-/**
- * GET /api/admin/products/:id/stock-ledger
- */
 exports.stockLedger = async (req, res) => {
   try {
     if (!validateProductId(req, res)) return;
@@ -1311,18 +1212,6 @@ exports.stockLedger = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Bulk product import                                                         */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/admin/products/import
- *
- * Accepts:
- *   { "products": [...] }
- * or
- *   { "items": [...] }
- */
 exports.bulkImport = async (req, res) => {
   try {
     const items = req.body?.products || req.body?.items;
@@ -1450,7 +1339,7 @@ exports.bulkImport = async (req, res) => {
 
         created += 1;
       } catch (error) {
-        // Remove a partially imported product if its ledger entry failed.
+
         if (product?._id) {
           try {
             await Product.deleteOne({ _id: product._id });

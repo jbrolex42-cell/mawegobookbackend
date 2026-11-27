@@ -6,19 +6,11 @@ const mongoose = require('mongoose');
 const { PromoCode, Order } = require('../models');
 const { serialize, serializeMany } = require('../utils/helpers');
 
-/* -------------------------------------------------------------------------- */
-/* Configuration                                                              */
-/* -------------------------------------------------------------------------- */
-
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const DEFAULT_PER_USER_LIMIT = 1;
 
 const VALID_DISCOUNT_TYPES = ['percent', 'fixed'];
-
-/* -------------------------------------------------------------------------- */
-/* General helpers                                                            */
-/* -------------------------------------------------------------------------- */
 
 const logError = (context, error) => {
   console.error(`[PromoController] ${context}`, {
@@ -125,16 +117,6 @@ const formatKes = (amount) =>
     maximumFractionDigits: 0
   });
 
-/* -------------------------------------------------------------------------- */
-/* Discount calculation                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Calculates the discount in KES.
- *
- * Percentage discounts are calculated from the eligible basket subtotal.
- * Fixed discounts cannot exceed the subtotal.
- */
 function calculateDiscount(promo, subtotal) {
   const amount = Number(subtotal);
 
@@ -161,28 +143,12 @@ function calculateDiscount(promo, subtotal) {
     }
   }
 
-  // KES is rounded to the nearest whole shilling.
   return Math.max(
     0,
     Math.min(amount, Math.round(discount))
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Customer promo validation                                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Validates a promotional code for a customer.
- *
- * Important:
- * This function validates eligibility but does not reserve or consume
- * promotional-code usage. Usage must be recorded when an order is confirmed.
- *
- * @param {string} code
- * @param {number} subtotal
- * @param {string|null} userId
- */
 async function validatePromoForCustomer(code, subtotal, userId = null) {
   const normalizedCode = normalizeCode(code);
   const amount = Number(subtotal);
@@ -273,10 +239,6 @@ async function validatePromoForCustomer(code, subtotal, userId = null) {
     total_after_discount_kes: Math.max(0, amount - discount)
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/* Request validation                                                         */
-/* -------------------------------------------------------------------------- */
 
 const validatePromoInput = (body = {}) => {
   const code = normalizeCode(body.code);
@@ -382,13 +344,6 @@ function parseBoolean(value) {
   throw new Error('Invalid active status.');
 }
 
-/* -------------------------------------------------------------------------- */
-/* Customer endpoints                                                         */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/promos/validate
- */
 exports.validate = async (req, res) => {
   try {
     const body = req.body || {};
@@ -417,15 +372,6 @@ exports.validate = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* Admin endpoints                                                            */
-/* -------------------------------------------------------------------------- */
-
-/**
- * POST /api/admin/promos
- *
- * Creates a new promotional code.
- */
 exports.create = async (req, res) => {
   try {
     const fields = validatePromoInput(req.body || {});
@@ -478,11 +424,6 @@ exports.create = async (req, res) => {
   }
 };
 
-/**
- * GET /api/admin/promos
- *
- * Lists promotional codes with pagination and optional filters.
- */
 exports.list = async (req, res) => {
   try {
     const { page, limit, skip } = parsePagination(req.query);
@@ -526,11 +467,6 @@ exports.list = async (req, res) => {
   }
 };
 
-/**
- * PUT /api/admin/promos/:id
- *
- * Updates an existing promotional code.
- */
 exports.update = async (req, res) => {
   try {
     const id = req.params.id;
@@ -635,12 +571,6 @@ exports.update = async (req, res) => {
   }
 };
 
-/**
- * DELETE /api/admin/promos/:id
- *
- * Soft-deletes a promo by disabling it.
- * Keeps historical order references intact.
- */
 exports.remove = async (req, res) => {
   try {
     const id = req.params.id;
@@ -682,10 +612,6 @@ exports.remove = async (req, res) => {
     });
   }
 };
-
-/* -------------------------------------------------------------------------- */
-/* Shared exports                                                             */
-/* -------------------------------------------------------------------------- */
 
 exports.calculateDiscount = calculateDiscount;
 exports.validatePromoForCustomer = validatePromoForCustomer;
